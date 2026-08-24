@@ -1,0 +1,83 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node scripts/epics.mjs*)",
+      "Bash(pnpm install)",
+      "Bash(pnpm verify*)",
+      "Bash(pnpm typecheck*)",
+      "Bash(pnpm lint*)",
+      "Bash(pnpm test*)",
+      "Bash(pnpm build*)",
+      "Bash(pnpm format*)",
+      "Bash(pnpm golden*)",
+      "Bash(pnpm cost:report*)",
+      "Bash(pnpm profile:validate*)",
+      "Bash(pnpm gen:connectors*)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git show*)",
+      "Bash(git branch*)",
+      "Bash(git worktree list*)",
+      "Bash(git merge-base*)",
+      "Bash(git add *)",
+      "Bash(git commit*)",
+      "Bash(ls*)",
+      "Bash(cat*)",
+      "Bash(head*)",
+      "Bash(tail*)",
+      "Bash(grep*)",
+      "Bash(rg*)",
+      "Bash(find*)",
+      "Bash(wc*)",
+      "Bash(jq*)",
+      "Bash(node --check*)",
+      "Bash(bash -n*)",
+      "Read",
+      "Write",
+      "Edit"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git branch -D*)",
+      "Bash(git push origin --delete*)",
+      "Bash(npx prisma migrate reset*)",
+      "Bash(neonctl projects delete*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/intercept-agent-worktree.sh" }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/enforce-subagent-worktree.sh" }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/live-effects-guard.sh" },
+          { "type": "command", "command": "bash .claude/hooks/git-add-pathspec-guard.sh" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/post-git-cleanup.sh" }
+        ]
+      }
+    ]
+  }
+}

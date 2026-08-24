@@ -8,7 +8,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "verify": "pnpm typecheck && pnpm lint && pnpm test",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:hooks && node scripts/epics.mjs --selftest",
     "typecheck": "tsc -b --pretty",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -19,7 +19,9 @@
     "build": "tsc -b --pretty",
     "rebuild": "pnpm clean && pnpm build",
     "clean": "rm -rf packages/*/dist apps/*/dist packages/*/*.tsbuildinfo apps/*/*.tsbuildinfo",
-    "build:proof": "test -f packages/core/dist/index.js && echo \"build artefact present: $(find packages/*/dist apps/*/dist -name '*.js' | wc -l | tr -d ' ') js files\""
+    "build:proof": "test -f packages/core/dist/index.js && echo \"build artefact present: $(find packages/*/dist apps/*/dist -name '*.js' | wc -l | tr -d ' ') js files\"",
+    "test:hooks": "bash test/hooks/run.sh",
+    "epics": "node scripts/epics.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
