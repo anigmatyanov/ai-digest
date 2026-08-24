@@ -1,29 +1,32 @@
 ---
 id: E-XXX
 title: ""
-status: draft          # draft | todo | in-progress | review | done | blocked | dropped
-priority: P2           # P1 | P2 | P3
-size: S                # S (≤ полдня) | M (≤ ~1 день агентной работы). L не бывает.
-autonomy: auto         # auto | plan-gated | paired
-area: ""               # connectors | pipeline | llm | web | profiles | infra | tooling
-depends_on: []         # [E-004] — должны быть done
-serialize: []          # метки из реестра .claude/rules/backlog.md
+status: draft # draft | todo | in-progress | review | done | blocked | dropped
+priority: P2 # P1 | P2 | P3
+size: S # S (≤ полдня) | M (≤ ~1 день агентной работы). L не бывает.
+autonomy: auto # auto | plan-gated | paired
+area: "" # connectors | pipeline | llm | web | profiles | infra | tooling
+depends_on: [] # [E-004] — должны быть done
+serialize: [] # метки из реестра .claude/rules/backlog.md
 
-costs_llm: false       # true → эпик меняет промпты/модель/число вызовов.
-                       # Тогда `pnpm cost:report` обязателен в ## Верификация,
-                       # а дельта к costs/baseline.json — в отчёте.
-touches_output: false  # true → эпик меняет то, ЧТО читатель увидит в выпуске.
-                       # Тогда обязателен `pnpm golden` + дифф выпуска в отчёте,
-                       # и autonomy не может быть auto.
-ui_visible: false      # true → на /epic-review нужен скриншот страницы с превью-порта.
-cloud_safe: true       # false → нужны живая сеть, реальные секреты или взгляд на превью;
-                       # облачная routine такой эпик брать не должна.
+costs_llm:
+  false # true → эпик меняет промпты/модель/число вызовов.
+  # Тогда `pnpm cost:report` обязателен в ## Верификация,
+  # а дельта к costs/baseline.json — в отчёте.
+touches_output:
+  false # true → эпик меняет то, ЧТО читатель увидит в выпуске.
+  # Тогда обязателен `pnpm golden` + дифф выпуска в отчёте,
+  # и autonomy не может быть auto.
+ui_visible: false # true → на /epic-review нужен скриншот страницы с превью-порта.
+cloud_safe:
+  true # false → нужны живая сеть, реальные секреты или взгляд на превью;
+  # облачная routine такой эпик брать не должна.
 
-claimed_by: ""         # agent/<slug> — ставит /epic-next; руками не редактировать
-branch: ""             # agent/<slug> — ставит /epic-next
+claimed_by: "" # agent/<slug> — ставит /epic-next; руками не редактировать
+branch: "" # agent/<slug> — ставит /epic-next
 created: 2026-08-25
-done: ""               # YYYY-MM-DD — ставит /finish-branch
-discovered_from: ""    # E-NNN, если эпик родился в ходе исполнения другого
+done: "" # YYYY-MM-DD — ставит /finish-branch
+discovered_from: "" # E-NNN, если эпик родился в ходе исполнения другого
 ---
 
 # E-XXX: <название>

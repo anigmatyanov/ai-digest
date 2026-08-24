@@ -27,12 +27,8 @@ const EPIC_DIR = join(ROOT, "docs", "epics");
 const ACTIVE = new Set(["todo", "in-progress", "review"]);
 const HOLDS_SERIALIZE = new Set(["in-progress", "review"]);
 const SIZES = new Set(["S", "M"]);
-const AREAS = new Set([
-  "connectors", "pipeline", "llm", "web", "profiles", "infra", "tooling",
-]);
-const STATUSES = new Set([
-  "draft", "todo", "in-progress", "review", "done", "blocked", "dropped",
-]);
+const AREAS = new Set(["connectors", "pipeline", "llm", "web", "profiles", "infra", "tooling"]);
+const STATUSES = new Set(["draft", "todo", "in-progress", "review", "done", "blocked", "dropped"]);
 
 /**
  * Serialize label registry. Mirrors the table in .claude/rules/backlog.md — the
@@ -40,7 +36,10 @@ const STATUSES = new Set([
  */
 const SERIALIZE_LABELS = {
   "prisma-schema": ["packages/db/prisma/schema.prisma", "packages/db/prisma/migrations/"],
-  "pipeline-contract": ["packages/core/src/pipeline/pipeline.ts", "packages/core/src/pipeline/stage.ts"],
+  "pipeline-contract": [
+    "packages/core/src/pipeline/pipeline.ts",
+    "packages/core/src/pipeline/stage.ts",
+  ],
   "core-types": ["packages/core/src/types.ts", "packages/core/src/schema/"],
   "core-errors": ["packages/core/src/errors.ts"],
   "profile-schema": ["profiles/schema.ts"],
@@ -50,7 +49,13 @@ const SERIALIZE_LABELS = {
   "env-schema": ["packages/core/src/env.ts", ".env.example"],
   "web-shell": ["apps/web/src/app/layout.tsx", "apps/web/src/app/globals.css"],
   workflows: [".github/workflows/"],
-  toolchain: ["package.json", "tsconfig.json", "tsconfig.base.json", "eslint.config.js", "pnpm-workspace.yaml"],
+  toolchain: [
+    "package.json",
+    "tsconfig.json",
+    "tsconfig.base.json",
+    "eslint.config.js",
+    "pnpm-workspace.yaml",
+  ],
 };
 
 // ─────────────────────────── frontmatter ───────────────────────────
@@ -79,7 +84,10 @@ function coerce(value) {
   if (/^\[.*\]$/.test(v)) {
     const inner = v.slice(1, -1).trim();
     if (inner === "") return [];
-    return inner.split(",").map((s) => s.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+    return inner
+      .split(",")
+      .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+      .filter(Boolean);
   }
   if (/^-?\d+$/.test(v)) return Number(v);
   return v.replace(/^["']|["']$/g, "");
@@ -138,28 +146,39 @@ export function validateEpic(epic) {
   const { fm, body } = epic;
   const id = fm.id ?? "(no id)";
 
-  if (!STATUSES.has(String(fm.status))) problems.push(`status "${fm.status}" is not a known status`);
-  if (!SIZES.has(String(fm.size))) problems.push(`size must be S or M (L does not exist — split into epics with depends_on), got "${fm.size}"`);
+  if (!STATUSES.has(String(fm.status)))
+    problems.push(`status "${fm.status}" is not a known status`);
+  if (!SIZES.has(String(fm.size)))
+    problems.push(
+      `size must be S or M (L does not exist — split into epics with depends_on), got "${fm.size}"`,
+    );
   if (!String(fm.title ?? "").trim()) problems.push("title is empty");
 
   const goal = section(body, "Цель").trim();
   if (!goal) problems.push("## Цель is empty");
 
-  const criteria = [...section(body, "Критерии приёмки").matchAll(/^\s*-\s+\[[ xX]\]\s+(.+)$/gm)].map((x) => x[1]);
+  const criteria = [
+    ...section(body, "Критерии приёмки").matchAll(/^\s*-\s+\[[ xX]\]\s+(.+)$/gm),
+  ].map((x) => x[1]);
   const isWhenThen = (c) => /КОГДА[\s\S]*ТО\s/u.test(c);
   const whenThen = criteria.filter(isWhenThen);
   if (whenThen.length === 0) {
-    problems.push("no acceptance criterion in «КОГДА …, ТО …» form (an observable outcome, not an implementation step)");
+    problems.push(
+      "no acceptance criterion in «КОГДА …, ТО …» form (an observable outcome, not an implementation step)",
+    );
   }
   // Requiring only "at least one" lets an epic with seven good criteria and one
   // "сделать раннер" pass silently — and that one is an implementation step, which is
   // exactly what the form exists to keep out. Name every offender rather than one.
   for (const c of criteria.filter((x) => !isWhenThen(x))) {
-    warnings.push(`criterion is not in «КОГДА …, ТО …» form (reads as an implementation step): "${c.slice(0, 70)}${c.length > 70 ? "…" : ""}"`);
+    warnings.push(
+      `criterion is not in «КОГДА …, ТО …» form (reads as an implementation step): "${c.slice(0, 70)}${c.length > 70 ? "…" : ""}"`,
+    );
   }
 
   const verification = section(body, "Верификация");
-  if (!/```[\s\S]*?```/.test(verification)) problems.push("## Верификация has no fenced command block");
+  if (!/```[\s\S]*?```/.test(verification))
+    problems.push("## Верификация has no fenced command block");
 
   const scopePaths = [...section(body, "Объём").matchAll(/`([^`]+)`/g)].map((x) => x[1]);
   if (scopePaths.length === 0) problems.push("## Объём names no path");
@@ -169,25 +188,32 @@ export function validateEpic(epic) {
     if (!known.has(dep)) problems.push(`depends_on "${dep}" does not exist`);
   }
   for (const label of toArray(fm.serialize)) {
-    if (!(label in SERIALIZE_LABELS)) problems.push(`serialize label "${label}" is not in the registry`);
+    if (!(label in SERIALIZE_LABELS))
+      problems.push(`serialize label "${label}" is not in the registry`);
   }
 
   // Warnings — they do not block promotion, but they are almost always a real signal.
   if (!AREAS.has(String(fm.area))) warnings.push(`area "${fm.area}" is not in the vocabulary`);
   if (fm.touches_output === true && fm.autonomy === "auto") {
-    problems.push("touches_output: true is incompatible with autonomy: auto — the output diff needs a human on review");
+    problems.push(
+      "touches_output: true is incompatible with autonomy: auto — the output diff needs a human on review",
+    );
   }
   if (fm.costs_llm === true && !/cost:report/.test(verification)) {
     warnings.push("costs_llm: true but ## Верификация never runs `pnpm cost:report`");
   }
   const risky = ["packages/telegram", "packages/db/prisma", "packages/llm/src/prompts"];
   if (fm.autonomy === "auto" && scopePaths.some((p) => risky.some((r) => p.startsWith(r)))) {
-    warnings.push("autonomy: auto over a risky area (telegram / prisma / prompts) — use plan-gated or paired");
+    warnings.push(
+      "autonomy: auto over a risky area (telegram / prisma / prompts) — use plan-gated or paired",
+    );
   }
   for (const label of Object.keys(SERIALIZE_LABELS)) {
     const touched = scopePaths.some((p) => SERIALIZE_LABELS[label].some((h) => p.startsWith(h)));
     if (touched && !toArray(fm.serialize).includes(label)) {
-      problems.push(`## Объём touches a "${label}" hotspot but the label is missing from serialize:`);
+      problems.push(
+        `## Объём touches a "${label}" hotspot but the label is missing from serialize:`,
+      );
     }
   }
 
@@ -200,13 +226,22 @@ const toArray = (v) => (Array.isArray(v) ? v : v === "" || v == null ? [] : [v])
 
 function git(args) {
   try {
-    return execFileSync("git", args, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return execFileSync("git", args, {
+      cwd: ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
   } catch {
     return null;
   }
 }
 
-const liveBranches = () => new Set((git(["branch", "--list", "agent/*", "--format=%(refname:short)"]) ?? "").split("\n").filter(Boolean));
+const liveBranches = () =>
+  new Set(
+    (git(["branch", "--list", "agent/*", "--format=%(refname:short)"]) ?? "")
+      .split("\n")
+      .filter(Boolean),
+  );
 
 // ─────────────────────────── modes ───────────────────────────
 
@@ -216,7 +251,9 @@ function readiness(epics) {
     if (!e.fm || !HOLDS_SERIALIZE.has(String(e.fm.status))) continue;
     for (const l of toArray(e.fm.serialize)) heldLabels.set(l, String(e.fm.id));
   }
-  const doneIds = new Set(epics.filter((e) => e.fm && e.fm.status === "done").map((e) => String(e.fm.id)));
+  const doneIds = new Set(
+    epics.filter((e) => e.fm && e.fm.status === "done").map((e) => String(e.fm.id)),
+  );
 
   return epics
     .filter((e) => e.fm && e.fm.status === "todo")
@@ -236,7 +273,10 @@ function readiness(epics) {
 function planBatch(epics) {
   const claimable = readiness(epics).filter((r) => r.blockers.length === 0);
   const prio = (e) => ({ P1: 0, P2: 1, P3: 2 })[String(e.fm.priority)] ?? 3;
-  claimable.sort((a, b) => prio(a.epic) - prio(b.epic) || String(a.epic.fm.id).localeCompare(String(b.epic.fm.id)));
+  claimable.sort(
+    (a, b) =>
+      prio(a.epic) - prio(b.epic) || String(a.epic.fm.id).localeCompare(String(b.epic.fm.id)),
+  );
 
   const taken = new Set();
   const batch = [];
@@ -276,7 +316,8 @@ function staleClaims(epics) {
   const branches = liveBranches();
   if (branches === null) return null;
   return epics.filter(
-    (e) => e.fm && e.fm.status === "in-progress" && e.fm.branch && !branches.has(String(e.fm.branch)),
+    (e) =>
+      e.fm && e.fm.status === "in-progress" && e.fm.branch && !branches.has(String(e.fm.branch)),
   );
 }
 
@@ -312,8 +353,11 @@ function main() {
 
   if (has("--selftest")) {
     const r = selfTest();
-    console.log(r.ok ? "selftest ok: serialize registry matches backlog.md"
-      : `selftest FAILED\n  in code, undocumented: ${r.missing.join(", ") || "-"}\n  documented, not in code: ${r.extra.join(", ") || "-"}`);
+    console.log(
+      r.ok
+        ? "selftest ok: serialize registry matches backlog.md"
+        : `selftest FAILED\n  in code, undocumented: ${r.missing.join(", ") || "-"}\n  documented, not in code: ${r.extra.join(", ") || "-"}`,
+    );
     process.exit(r.ok ? 0 : 1);
   }
 
@@ -324,7 +368,9 @@ function main() {
 
   if (has("--validate")) {
     const files = argv.slice(argv.indexOf("--validate") + 1).filter((a) => !a.startsWith("--"));
-    const targets = files.length ? files : epics.filter((e) => e.fm?.status === "draft").map((e) => e.path);
+    const targets = files.length
+      ? files
+      : epics.filter((e) => e.fm?.status === "draft").map((e) => e.path);
     if (targets.length === 0) {
       console.log("nothing to validate (no files given and no drafts in the queue)");
       return;
@@ -346,36 +392,64 @@ function main() {
       console.error("could not list git branches — refusing to guess which claims are stale");
       process.exit(3);
     }
-    if (asJson) console.log(JSON.stringify(stale.map((e) => e.fm), null, 2));
+    if (asJson)
+      console.log(
+        JSON.stringify(
+          stale.map((e) => e.fm),
+          null,
+          2,
+        ),
+      );
     else if (stale.length === 0) console.log("no stale claims");
-    else stale.forEach((e) => console.log(`${e.fm.id}  claimed_by ${e.fm.claimed_by} — branch "${e.fm.branch}" no longer exists`));
+    else
+      stale.forEach((e) =>
+        console.log(
+          `${e.fm.id}  claimed_by ${e.fm.claimed_by} — branch "${e.fm.branch}" no longer exists`,
+        ),
+      );
     process.exit(stale.length ? 2 : 0);
   }
 
   if (has("--plan")) {
     const { batch, deferred, paired } = planBatch(epics);
     if (asJson) {
-      console.log(JSON.stringify({
-        batch: batch.map((e) => e.fm),
-        deferred: deferred.map((d) => ({ ...d.epic.fm, reason: d.reason })),
-        paired: paired.map((e) => e.fm),
-      }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            batch: batch.map((e) => e.fm),
+            deferred: deferred.map((d) => ({ ...d.epic.fm, reason: d.reason })),
+            paired: paired.map((e) => e.fm),
+          },
+          null,
+          2,
+        ),
+      );
       return;
     }
     console.log(`parallel-safe batch (${batch.length}):`);
-    batch.forEach((e) => console.log(`  ${e.fm.id}  [${e.fm.priority}/${e.fm.size}/${e.fm.autonomy}]  ${e.fm.title}${toArray(e.fm.serialize).length ? `  serialize=${toArray(e.fm.serialize).join(",")}` : ""}`));
+    batch.forEach((e) =>
+      console.log(
+        `  ${e.fm.id}  [${e.fm.priority}/${e.fm.size}/${e.fm.autonomy}]  ${e.fm.title}${toArray(e.fm.serialize).length ? `  serialize=${toArray(e.fm.serialize).join(",")}` : ""}`,
+      ),
+    );
     if (batch.length === 0) console.log("  (none)");
     if (deferred.length) {
       console.log(`\ndeferred to a later batch (${deferred.length}):`);
-      deferred.forEach((d) => console.log(`  ${d.epic.fm.id}  ${d.epic.fm.title}\n        → ${d.reason}`));
+      deferred.forEach((d) =>
+        console.log(`  ${d.epic.fm.id}  ${d.epic.fm.title}\n        → ${d.reason}`),
+      );
     }
     if (paired.length) {
-      console.log(`\nnot dispatchable — autonomy: paired, work these interactively (${paired.length}):`);
+      console.log(
+        `\nnot dispatchable — autonomy: paired, work these interactively (${paired.length}):`,
+      );
       paired.forEach((e) => console.log(`  ${e.fm.id}  ${e.fm.title}`));
     }
     const live = liveBranches();
     if (live && live.size) console.log(`\nlive agent branches: ${[...live].join(", ")}`);
-    console.log("\nConflicts outside the registry cannot be predicted here — the rebase-clean gate in /finish-branch catches those.");
+    console.log(
+      "\nConflicts outside the registry cannot be predicted here — the rebase-clean gate in /finish-branch catches those.",
+    );
     return;
   }
 
@@ -383,24 +457,44 @@ function main() {
     const rows = readiness(epics);
     const ready = rows.filter((r) => r.blockers.length === 0);
     if (asJson) {
-      console.log(JSON.stringify(ready.map((r) => r.epic.fm), null, 2));
+      console.log(
+        JSON.stringify(
+          ready.map((r) => r.epic.fm),
+          null,
+          2,
+        ),
+      );
       return;
     }
     console.log(`ready to claim (${ready.length}):`);
-    ready.forEach((r) => console.log(`  ${r.epic.fm.id}  [${r.epic.fm.priority}/${r.epic.fm.size}/${r.epic.fm.autonomy}]  ${r.epic.fm.title}`));
+    ready.forEach((r) =>
+      console.log(
+        `  ${r.epic.fm.id}  [${r.epic.fm.priority}/${r.epic.fm.size}/${r.epic.fm.autonomy}]  ${r.epic.fm.title}`,
+      ),
+    );
     if (ready.length === 0) console.log("  (none)");
     const blocked = rows.filter((r) => r.blockers.length > 0);
     if (blocked.length) {
       console.log(`\nblocked (${blocked.length}):`);
-      blocked.forEach((r) => console.log(`  ${r.epic.fm.id}  ${r.epic.fm.title}\n        → ${r.blockers.join("; ")}`));
+      blocked.forEach((r) =>
+        console.log(`  ${r.epic.fm.id}  ${r.epic.fm.title}\n        → ${r.blockers.join("; ")}`),
+      );
     }
-    console.log("\nBefore fanning out several agents use --plan, not --ready: two ready epics can still share a serialize label.");
+    console.log(
+      "\nBefore fanning out several agents use --plan, not --ready: two ready epics can still share a serialize label.",
+    );
     return;
   }
 
   // default: everything by status
   if (asJson) {
-    console.log(JSON.stringify(epics.map((e) => e.fm ?? { file: e.file, error: e.error }), null, 2));
+    console.log(
+      JSON.stringify(
+        epics.map((e) => e.fm ?? { file: e.file, error: e.error }),
+        null,
+        2,
+      ),
+    );
     return;
   }
   const broken = epics.filter((e) => e.error);
@@ -415,10 +509,15 @@ function main() {
     const rows = byStatus.get(s);
     if (!rows?.length) continue;
     console.log(`\n${s} (${rows.length})`);
-    rows.forEach((e) => console.log(`  ${e.fm.id}  ${e.fm.title}${e.fm.branch ? `  → ${e.fm.branch}` : ""}`));
+    rows.forEach((e) =>
+      console.log(`  ${e.fm.id}  ${e.fm.title}${e.fm.branch ? `  → ${e.fm.branch}` : ""}`),
+    );
   }
   const active = epics.filter((e) => e.fm && ACTIVE.has(String(e.fm.status))).length;
-  if (active > 15) console.log(`\n! ${active} active epics (todo+in-progress+review). Above ~15 the queue stops being a queue.`);
+  if (active > 15)
+    console.log(
+      `\n! ${active} active epics (todo+in-progress+review). Above ~15 the queue stops being a queue.`,
+    );
   if (epics.length === 0) console.log("no epics yet — create one from docs/epics/_template.md");
 }
 

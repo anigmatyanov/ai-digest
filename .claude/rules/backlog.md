@@ -18,15 +18,15 @@ draft → todo → in-progress → review → done
 review → in-progress (доработка) | in-progress → todo (протухший claim) | любой → dropped
 ```
 
-| Что | Кто меняет | Где коммитится |
-|---|---|---|
-| Создание эпика, `draft→todo` | владелец + `/epic-new` | main |
-| `todo→in-progress`, `claimed_by`, `branch` | родительская сессия (`/epic-next`), ДО диспатча | main |
-| `## План реализации`, чекбоксы AC (только ставить), `## Заметки` (только дописывать), стабы найденной работы | **только** субагент-исполнитель | его ветка `agent/<slug>` |
-| `in-progress→review` | родительская сессия, прочитав финальный отчёт | main |
-| `review→done` + `done:` | `/finish-branch`, внутри того же squash-коммита | main |
-| `любой→dropped` + причина в Заметках | только владелец | main |
-| **Текст** критериев, `## Объём`, `## Границы`, `## Верификация`, любое поле frontmatter | только владелец | main |
+| Что                                                                                                          | Кто меняет                                      | Где коммитится           |
+| ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------- | ------------------------ |
+| Создание эпика, `draft→todo`                                                                                 | владелец + `/epic-new`                          | main                     |
+| `todo→in-progress`, `claimed_by`, `branch`                                                                   | родительская сессия (`/epic-next`), ДО диспатча | main                     |
+| `## План реализации`, чекбоксы AC (только ставить), `## Заметки` (только дописывать), стабы найденной работы | **только** субагент-исполнитель                 | его ветка `agent/<slug>` |
+| `in-progress→review`                                                                                         | родительская сессия, прочитав финальный отчёт   | main                     |
+| `review→done` + `done:`                                                                                      | `/finish-branch`, внутри того же squash-коммита | main                     |
+| `любой→dropped` + причина в Заметках                                                                         | только владелец                                 | main                     |
+| **Текст** критериев, `## Объём`, `## Границы`, `## Верификация`, любое поле frontmatter                      | только владелец                                 | main                     |
 
 ### Жёсткие правила исполнителя
 
@@ -75,26 +75,26 @@ git show "$(git merge-base main <branch>):docs/epics/E-NNN-<slug>.md"
 
 Если карта файлов эпика трогает файл из реестра — соответствующая метка обязана быть в `serialize:`. Два эпика с общей меткой никогда не выполняются одновременно: метка удерживается и в `in-progress`, и в `review`, до самого мержа.
 
-| Метка | Что запирает | Почему это hotspot |
-|---|---|---|
-| `prisma-schema` | `packages/db/prisma/schema.prisma`, `packages/db/prisma/migrations/**` | Две параллельные миграции дают расходящуюся историю и дрейф shadow-БД |
-| `pipeline-contract` | `packages/core/src/pipeline/pipeline.ts`, `packages/core/src/pipeline/stage.ts` | Список стадий и сигнатура `Stage` — их правят все |
-| `core-types` | `packages/core/src/types.ts`, `packages/core/src/schema/*.ts` | `RawItem`/`Candidate`/`Card`/`Edition` читают все стадии |
-| `core-errors` | `packages/core/src/errors.ts` | Классы, на которые ветвится раннер |
-| `profile-schema` | `profiles/schema.ts` | Смена схемы мгновенно инвалидирует все профили |
-| `profiles` | `profiles/*.ts` | Правка чужого профиля почти всегда значит, что эпик разросся |
-| `prompts` | `packages/llm/src/prompts/**` | Дело не в текстовом конфликте, а в **измеримости**: golden-дифф двух одновременно изменённых промптов невозможно приписать конкретному эпику |
-| `llm-costs` | `packages/llm/src/cost.ts`, `packages/llm/src/pricing.ts`, `costs/baseline.json` | Два параллельных обновления дают baseline, которого не было ни в одном прогоне |
-| `env-schema` | `packages/core/src/env.ts`, `.env.example` | Каждая новая переменная приходит сюда |
-| `web-shell` | `apps/web/src/app/layout.tsx`, `apps/web/src/app/globals.css` | Оболочка и токены темы |
-| `workflows` | `.github/workflows/**` | Cron продукта и CI; YAML мержится плохо |
-| `toolchain` | `package.json`, `tsconfig*.json`, `eslint.config.js`, `pnpm-workspace.yaml` | Корневой манифест и конфиги правят все, а конфликт в них ломает `verify` для всех живых веток |
+| Метка               | Что запирает                                                                     | Почему это hotspot                                                                                                                           |
+| ------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prisma-schema`     | `packages/db/prisma/schema.prisma`, `packages/db/prisma/migrations/**`           | Две параллельные миграции дают расходящуюся историю и дрейф shadow-БД                                                                        |
+| `pipeline-contract` | `packages/core/src/pipeline/pipeline.ts`, `packages/core/src/pipeline/stage.ts`  | Список стадий и сигнатура `Stage` — их правят все                                                                                            |
+| `core-types`        | `packages/core/src/types.ts`, `packages/core/src/schema/*.ts`                    | `RawItem`/`Candidate`/`Card`/`Edition` читают все стадии                                                                                     |
+| `core-errors`       | `packages/core/src/errors.ts`                                                    | Классы, на которые ветвится раннер                                                                                                           |
+| `profile-schema`    | `profiles/schema.ts`                                                             | Смена схемы мгновенно инвалидирует все профили                                                                                               |
+| `profiles`          | `profiles/*.ts`                                                                  | Правка чужого профиля почти всегда значит, что эпик разросся                                                                                 |
+| `prompts`           | `packages/llm/src/prompts/**`                                                    | Дело не в текстовом конфликте, а в **измеримости**: golden-дифф двух одновременно изменённых промптов невозможно приписать конкретному эпику |
+| `llm-costs`         | `packages/llm/src/cost.ts`, `packages/llm/src/pricing.ts`, `costs/baseline.json` | Два параллельных обновления дают baseline, которого не было ни в одном прогоне                                                               |
+| `env-schema`        | `packages/core/src/env.ts`, `.env.example`                                       | Каждая новая переменная приходит сюда                                                                                                        |
+| `web-shell`         | `apps/web/src/app/layout.tsx`, `apps/web/src/app/globals.css`                    | Оболочка и токены темы                                                                                                                       |
+| `workflows`         | `.github/workflows/**`                                                           | Cron продукта и CI; YAML мержится плохо                                                                                                      |
+| `toolchain`         | `package.json`, `tsconfig*.json`, `eslint.config.js`, `pnpm-workspace.yaml`      | Корневой манифест и конфиги правят все, а конфликт в них ломает `verify` для всех живых веток                                                |
 
 **Реестра коннекторов в этом списке нет намеренно.** `packages/connectors/src/index.ts` генерируется командой `pnpm gen:connectors` из содержимого директории, поэтому два агента, добавляющие по коннектору, не правят один файл руками. Устранённый хотспот лучше запертого: метка **сериализует** работу, кодогенерация — **распараллеливает** её.
 
 **Тот же вопрос задавай каждому новому кандидату в реестр:** его можно сгенерировать? Если да — генерируй, а не запирай.
 
-Конфликты на файлах *вне* реестра `--plan` предсказать не может: реальный список файлов не стартовавшего эпика ещё не существует. Их ловит rebase-clean гейт в `/finish-branch`.
+Конфликты на файлах _вне_ реестра `--plan` предсказать не может: реальный список файлов не стартовавшего эпика ещё не существует. Их ловит rebase-clean гейт в `/finish-branch`.
 
 ## Правила нарезки
 

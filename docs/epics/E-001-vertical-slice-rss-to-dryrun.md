@@ -7,7 +7,18 @@ size: M
 autonomy: paired
 area: pipeline
 depends_on: []
-serialize: [prisma-schema, pipeline-contract, core-types, profile-schema, profiles, prompts, llm-costs, env-schema, toolchain]
+serialize:
+  [
+    prisma-schema,
+    pipeline-contract,
+    core-types,
+    profile-schema,
+    profiles,
+    prompts,
+    llm-costs,
+    env-schema,
+    toolchain,
+  ]
 
 costs_llm: true
 touches_output: true
