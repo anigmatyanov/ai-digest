@@ -1,0 +1,26 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts"],
+  "references": [
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/db"
+    },
+    {
+      "path": "../../packages/llm"
+    },
+    {
+      "path": "../../packages/connectors"
+    },
+    {
+      "path": "../../packages/telegram"
+    }
+  ]
+}

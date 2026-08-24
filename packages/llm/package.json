@@ -1,0 +1,22 @@
+{
+  "name": "@ai-digest/llm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Claude cascade, prompt cache, budget guard, evidence verifier.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@ai-digest/core": "workspace:*"
+  }
+}

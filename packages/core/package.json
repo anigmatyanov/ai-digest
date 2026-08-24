@@ -1,0 +1,19 @@
+{
+  "name": "@ai-digest/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Domain types, pipeline stages, state machine, orchestrator. Topic-agnostic.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  }
+}

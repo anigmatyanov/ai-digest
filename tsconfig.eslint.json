@@ -1,0 +1,21 @@
+{
+  "// note": "Lint-only project: the build configs deliberately exclude tests, but tests must still be type-checked by the linter. noEmit + non-composite so it never produces output.",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "apps/*/src/**/*.ts",
+    "test/**/*.ts",
+    "scripts/**/*.ts",
+    "profiles/**/*.ts",
+    "*.config.ts"
+  ]
+}

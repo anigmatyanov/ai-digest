@@ -1,0 +1,22 @@
+{
+  "name": "@ai-digest/telegram",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Bot API: channel publishing, webhook handlers, post rendering.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@ai-digest/core": "workspace:*"
+  }
+}

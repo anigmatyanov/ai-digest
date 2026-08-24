@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+*.tsbuildinfo
+.next/
+out/
+
+# env — never commit real secrets
+.env
+.env.*
+!.env.example
+
+# pipeline run artefacts (state of record lives in Postgres, not here)
+runs/
+
+# local tooling
+.DS_Store
+*.log
+coverage/
+.vercel/
+.turbo/
+
+# agent worktrees + slot registry (see .claude/rules/backlog.md)
+.claude/worktrees/
+.claude/settings.local.json
+
+# transformers.js model cache
+.cache/

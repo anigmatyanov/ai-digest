@@ -1,0 +1,22 @@
+{
+  "name": "@ai-digest/connectors",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Source plugins. One directory per source; index.ts is generated.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@ai-digest/core": "workspace:*"
+  }
+}

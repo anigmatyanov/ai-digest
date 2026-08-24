@@ -1,0 +1,26 @@
+{
+  "name": "@ai-digest/pipeline",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "CLI runner. Entry point for GitHub Actions.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@ai-digest/core": "workspace:*",
+    "@ai-digest/db": "workspace:*",
+    "@ai-digest/llm": "workspace:*",
+    "@ai-digest/connectors": "workspace:*",
+    "@ai-digest/telegram": "workspace:*"
+  }
+}
