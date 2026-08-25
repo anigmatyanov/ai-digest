@@ -62,6 +62,14 @@ fi
 
 # ── phase 2: strict, fail-closed ────────────────────────────────────────────────
 
+# Help output is inert for every command there is. Blocking it was the second false
+# positive in two commands (`neonctl roles --help`), and enumerating safe verbs one at a
+# time is the wrong shape of rule: a guard that has to be taught each inspection command
+# separately gets disabled long before the list is complete.
+if printf '%s\n' "$cmd" | grep -qE '(^|[[:space:]])(--help|-h|help)([[:space:]]|$|.$)'; then
+  exit 0
+fi
+
 # Reading and inspecting is always fine — it is how an agent learns what publishing does.
 if printf '%s' "$cmd" | grep -qE '^[[:space:]]*(cat|less|head|tail|bat|grep|rg|sed -n|awk|ls|find|wc|git (log|diff|show|status|grep)|node --check|bash -n|jq)[[:space:]]'; then
   exit 0

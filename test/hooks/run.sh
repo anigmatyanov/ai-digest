@@ -45,6 +45,12 @@ expect 2 "block: neonctl branches delete"    $G "$(cjson 'neonctl branches delet
 # during Neon setup: a false block on an inspection command is how a rail gets switched off
 # for good. NOTE: this file cannot be written by a shell heredoc — the guard judges the whole
 # command text, and the delete cases above appear inside it. Use a file-writing tool.
+# Help output is inert for every command. Enumerating safe verbs one at a time was the
+# wrong shape of rule — `neonctl roles --help` was the second false block in two commands.
+expect 0 "help: neonctl roles --help"        $G "$(cjson 'neonctl roles --help')"
+expect 0 "help: vercel deploy --help"        $G "$(cjson 'vercel deploy --help')"
+expect 0 "help: gh workflow run --help"      $G "$(cjson 'gh workflow run --help')"
+expect 0 "help: prisma migrate --help"       $G "$(cjson 'npx prisma migrate --help')"
 expect 0 "neonctl me"                        $G "$(cjson 'neonctl me')"
 expect 0 "neonctl projects list"             $G "$(cjson 'neonctl projects list')"
 expect 0 "neonctl connection-string"         $G "$(cjson 'neonctl connection-string --project-id x --pooled')"

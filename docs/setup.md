@@ -125,12 +125,34 @@ neonctl me                        # авторизован ли Neon CLI
 
 ## Ротация пароля роли
 
-Пароль `neondb_owner` был однажды передан через переписку и считается засвеченным. Ротация:
+Пароль `neondb_owner` однажды прошёл через переписку и считается засвеченным.
+
+**`neonctl roles` умеет только `list`, `create`, `delete` — команды `reset-password` в CLI нет.** Путей два.
+
+**Через консоль (короткий, рекомендуемый).** Neon Console → проект `ai-digest` → ветка `main` → Roles → `neondb_owner` → Reset password. Дальше перезаписать обе строки в `.env`:
 
 ```bash
-neonctl roles reset-password --project-id jolly-art-09773061 --name neondb_owner
+neonctl connection-string --project-id jolly-art-09773061 --pooled   # -> DATABASE_URL
+neonctl connection-string --project-id jolly-art-09773061            # -> DATABASE_URL_UNPOOLED
 ```
 
-**Эта команда намеренно блокируется** хуком `live-effects-guard.sh` — она мутирует состояние базы. Запускать её нужно осознанно, с префиксом `ALLOW_LIVE_EFFECTS=1`, либо из консоли Neon. После ротации перезаписать обе строки в `.env` (см. 2.3) и, если секреты уже в CI, обновить их там.
+и обновить секреты в CI:
+
+```bash
+gh secret set DATABASE_URL --body "$(grep '^DATABASE_URL=' .env | cut -d= -f2- | tr -d '\"')"
+gh secret set DATABASE_URL_UNPOOLED --body "$(grep '^DATABASE_URL_UNPOOLED=' .env | cut -d= -f2- | tr -d '\"')"
+```
+
+**Через API.** Требует NEON_API_KEY (создаётся в Account settings → API keys), эндпоинт по документации Neon API v2 — вживую здесь не проверялся, потому что ключа нет:
+
+```bash
+ALLOW_LIVE_EFFECTS=1 curl -X POST \
+  "https://console.neon.tech/api/v2/projects/jolly-art-09773061/branches/br-odd-wildflower-auvwcb49/roles/neondb_owner/reset_password" \
+  -H "Authorization: Bearer $NEON_API_KEY"
+```
+
+Префикс `ALLOW_LIVE_EFFECTS=1` обязателен: команда мутирует состояние и намеренно блокируется хуком.
+
+**Насколько это срочно.** База создана сегодня и пуста, доступ требует TLS, роль ограничена одной базой, а сам пароль не публиковался — риск низкий. Но ротация стоит трёх кликов, а «потом разберусь» с засвеченным паролем не проходит.
 
 Правило на будущее: строку подключения не передавать через чат — забирать сразу в `.env` командой `neonctl connection-string`.
