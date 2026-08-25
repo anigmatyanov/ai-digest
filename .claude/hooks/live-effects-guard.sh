@@ -22,6 +22,11 @@
 #   * a script in the repo that publishes internally when invoked by an innocuous name
 #   * an HTTP call written directly against api.telegram.org with a token from a file
 #   * `xargs`-driven invocations
+#   * ANY command whose text merely DESCRIBES a dangerous one: a commit message about the
+#     pipeline, a heredoc writing this battery, a doc mentioning a publish flag. Hit three
+#     times in one session. There is no fix that keeps the guard honest — judging by the
+#     command string is what makes it work at all — so the workaround is to write such text
+#     with a file-writing tool and pass the file (`git commit -F <file>`).
 #   These are limits, not oversights: the hook is a rail against accident, not a sandbox
 #   against a determined actor.
 #
