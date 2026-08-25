@@ -33,3 +33,6 @@ coverage/
 
 # transformers.js model cache
 .cache/
+
+# Pipeline run artefacts are reproducible output, not source. `runs/` was already
+# ignored; this keeps the intent visible next to it.

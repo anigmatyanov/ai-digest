@@ -1,0 +1,38 @@
+{
+  "isRelevant": true,
+  "rejectReason": null,
+  "type": "recipe",
+  "techniqueKey": "anthropic/mcp/stateless-mcp-http-call",
+  "title": "Построение MCP-клиента для Stateless MCP 2.0",
+  "summary": "Stateless MCP упрощает реализацию: вместо двух HTTP-запросов (инициализация + вызов) нужен один с метаинформацией в теле. Это делает возможным масштабируемые веб-приложения без сохранения состояния на сервере.",
+  "body": "В июле 2026 года вышла спецификация MCP 2.0 (Stateless MCP), которая кардинально упростила протокол. Основное отличие: старый MCP требовал инициализации сессии (POST с методом initialize, получение Mcp-Session-Id) и затем отдельного вызова инструмента (POST с заголовком Mcp-Session-Id). Новый stateless подход упаковывает всё в один запрос, передавая clientInfo в поле _meta внутри JSON-body. Это убирает необходимость хранить session-состояние на сервере и маршрутизировать запросы одной сессии на один бэкенд-машин.",
+  "steps": [
+    "Отправь POST-запрос на /mcp с заголовком MCP-Protocol-Version: 2026-07-28",
+    "Добавь заголовок Mcp-Method с названием метода (например, tools/call)",
+    "Добавь заголовок Mcp-Name с именем инструмента",
+    "В теле JSON передай метод, параметры и блок _meta с clientInfo (name, version)",
+    "Получи ответ без необходимости управлять session ID на клиенте"
+  ],
+  "tags": [
+    "mcp",
+    "protocol",
+    "stateless",
+    "http",
+    "client",
+    "agent"
+  ],
+  "claims": [
+    {
+      "text": "Stateless MCP использует один HTTP-запрос вместо двух, передавая информацию о клиенте в поле _meta внутри JSON-тела.",
+      "quote": "The new stateless way uses a single HTTP request which looks like this"
+    },
+    {
+      "text": "Stateless подход избегает необходимости хранить session-состояние на сервере и маршрутизировать сессии на одну машину.",
+      "quote": "now you don't need to maintain server-side state to keep track of those session IDs, or worry about routing the same session to the same backend machine"
+    },
+    {
+      "text": "MCP-Protocol-Version в новой спецификации — это 2026-07-28, и это самое значительное изменение протокола со времени его запуска.",
+      "quote": "the 2026-07-28 Model Context Protocol specification"
+    }
+  ]
+}

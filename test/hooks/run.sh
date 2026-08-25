@@ -45,6 +45,25 @@ expect 2 "block: neonctl branches delete"    $G "$(cjson 'neonctl branches delet
 # during Neon setup: a false block on an inspection command is how a rail gets switched off
 # for good. NOTE: this file cannot be written by a shell heredoc — the guard judges the whole
 # command text, and the delete cases above appear inside it. Use a file-writing tool.
+# Naming a subject is not performing an action. Every one of these was a real false block
+# during E-001 setup: the guard keyed on bare `telegram`, `publish` and `vercel`, so a
+# package name, a grep and a filename all landed in the danger zone and failed closed.
+expect 0 "mention: pnpm --filter .../telegram add" $G "$(cjson 'pnpm --filter @ai-digest/telegram add -D @types/node')"
+expect 0 "mention: loop naming the telegram pkg" $G "$(cjson 'for pkg in db llm connectors telegram; do echo $pkg; done')"
+expect 0 "mention: grep -rn publish"           $G "$(cjson 'grep -rn publish packages/')"
+expect 0 "mention: cat vercel.json"            $G "$(cjson 'cat vercel.json')"
+expect 0 "housekeeping: pnpm install"          $G "$(cjson 'pnpm install')"
+# An exemption that can be PREFIXED onto an arbitrary command is a bypass, not an
+# exemption. Both of these passed on the first version of the pnpm carve-out and blocked
+# at merge-base — a regression found by review, not by the battery, which is why they are
+# pinned here now. Bare `vercel` deploys the current directory and needs no sub-verb.
+expect 2 "bypass attempt: pnpm install && live run" $G "$(cjson 'pnpm install && pnpm digest:run --no-dry-run')"
+expect 2 "bypass attempt: pnpm add && vercel deploy" $G "$(cjson 'pnpm add zod && vercel deploy --prod')"
+expect 2 "bare vercel deploys the cwd"         $G "$(cjson 'vercel')"
+expect 2 "npx vercel deploys the cwd"          $G "$(cjson 'npx vercel')"
+# ...but publish in executable position is an action, not a mention.
+expect 2 "action: ./publish.sh"                $G "$(cjson './publish.sh')"
+
 # Help output is inert for every command. Enumerating safe verbs one at a time was the
 # wrong shape of rule — `neonctl roles --help` was the second false block in two commands.
 expect 0 "help: neonctl roles --help"        $G "$(cjson 'neonctl roles --help')"

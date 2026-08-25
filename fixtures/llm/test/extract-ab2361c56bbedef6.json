@@ -1,0 +1,31 @@
+{
+  "isRelevant": true,
+  "rejectReason": null,
+  "type": "feature_impact",
+  "techniqueKey": "openai/llm/reasoning-traces",
+  "title": "Вывод reasoning traces в LLM CLI",
+  "summary": "В LLM 0.32 добавлена поддержка отображения цепочек рассуждений моделей reasoning в stderr, отделяя \"внутренние размышления\" модели от основного вывода.",
+  "body": "Когда ты запускаешь LLM с моделями reasoning, их трассировки теперь выводятся в stderr, не попадая в stdout. Это позволяет видеть процесс размышления модели, не загромождая основной вывод, который ты можешь передать в другой инструмент. Флаг -R/--hide-reasoning отключает этот вывод если нужно.",
+  "steps": [
+    "Запустить LLM с моделью reasoning (например, gpt-5.6-luna)",
+    "Трассировки рассуждений автоматически выведутся в stderr",
+    "Основной результат останется в stdout и доступен для piping",
+    "При необходимости добавить флаг -R или --hide-reasoning для отключения вывода трассировок"
+  ],
+  "tags": [
+    "reasoning-models",
+    "cli",
+    "output-handling",
+    "stderr"
+  ],
+  "claims": [
+    {
+      "text": "Трассировки reasoning моделей выводятся в stderr, не включаясь в stdout для piping",
+      "quote": "Running LLM against reasoning models now displays their reasoning traces to standard error, so you can see what they are \"thinking\" without that information being included in the standard output that you might pipe to another tool."
+    },
+    {
+      "text": "Флаг -R/--hide-reasoning позволяет отключить отображение трассировок",
+      "quote": "Add -R/--hide-reasoning to turn this off."
+    }
+  ]
+}

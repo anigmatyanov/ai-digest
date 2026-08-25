@@ -1,0 +1,45 @@
+{
+  "isRelevant": true,
+  "rejectReason": null,
+  "type": "recipe",
+  "techniqueKey": "alibaba/qwen/reasoning-effort-tuning",
+  "title": "Снижение reasoning_effort в Qwen 3.8 27B для реальных задач",
+  "summary": "Qwen 3.8 27B по умолчанию использует xhigh reasoning effort, что приводит к экстремальному overthinking даже на простых задачах. Рецепт: запускай модель с low или без reasoning для баланса скорости и качества.",
+  "body": "Qwen 3.8 27B — 27B параметров vision-capable модель от Alibaba, но её умолчальный reasoning_effort (xhigh) делает её непригодной для потребительского железа. На простой запрос «draw an svg of a circle» модель потратила несколько минут на overthinking и выдала полностью переделанный результат. С полным контекстом (262,144 токенов) даже простой SVG генерировался 21 минуту, используя 22,276 reasoning токенов.\n\nСолюшн: переключайся на low reasoning или отключай его вообще для первоначального тестирования. Без reasoning та же задача решается за 2 минуты, хотя качество может упасть (например, бounding box tool без reasoning работает неправильно, но это решается уточняющими промптами). Для vision-задач (bounding boxes) и кодирования agent loop модель показывает хорошие результаты даже с reasoning turned off.",
+  "steps": [
+    "Загрузи Qwen 3.8 27B в LM Studio или через llama-server",
+    "Для простых задач: отключи reasoning или установи reasoning_effort=low вместо xhigh по умолчанию",
+    "Для complex vision-задач и агентов: используй reasoning=true, но будь готов к 15-30 tokens/sec на потребительском железе",
+    "Оптимизируй скорость через Multi-Token Prediction: используй флаг --spec-type draft-mtp при запуске llama-server"
+  ],
+  "tags": [
+    "qwen",
+    "reasoning",
+    "optimization",
+    "inference",
+    "vision",
+    "consumer-hardware"
+  ],
+  "claims": [
+    {
+      "text": "Qwen 3.8 27B по умолчанию использует xhigh reasoning effort, что приводит к экстремальному overthinking даже на простых задачах вроде рисования круга SVG.",
+      "quote": "Qwen's documentation describes the model as defaulting to xhigh for the reasoning effort"
+    },
+    {
+      "text": "С полным контекстом генерация простого пеликана на велосипеде заняла 21 минуту, используя 22,276 reasoning токенов для 3,223 токенов вывода.",
+      "quote": "It took 21 minutes to generate, using 22,276 reasoning tokens to produce 3,223 tokens of output."
+    },
+    {
+      "text": "Рекомендация: запускай Qwen 3.8 27B на low или без reasoning levels для баланса производительности и качества.",
+      "quote": "My strong recommendation: ignore that default. Run Qwen 3.8 27B on low or even no reasoning levels at first."
+    },
+    {
+      "text": "Для vision-задач типа bounding boxes модель показывает хорошие результаты даже со включённым reasoning.",
+      "quote": "This is such a good match"
+    },
+    {
+      "text": "Multi-Token Prediction даёт значимый буст производительности: --spec-type draft-mtp outperformed LM Studio default GGUF на 72%.",
+      "quote": "the --spec-type draft-mtp server outperformed the LM Studio default GGUF by around 72%."
+    }
+  ]
+}

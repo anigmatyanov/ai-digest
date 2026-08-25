@@ -56,7 +56,28 @@ cmd="$(printf '%s' "$payload" | jq -r '.tool_input.command // ""' 2>/dev/null)"
   exit 0; }
 
 # ── phase 1: is this even in the danger zone? ───────────────────────────────────
-if ! printf '%s' "$cmd" | grep -qiE 'digest:run|digest-run|pipeline (run|publish)|--publish|publish|telegram|api\.telegram\.org|vercel|gh (workflow|api|release)|neonctl|prisma (migrate|db push)|revalidate|sendMessage'; then
+#
+# Match the ACTION, not the mention. The first version keyed on bare `telegram`, `publish`
+# and `vercel`, which put `pnpm --filter @ai-digest/telegram add -D @types/node` in the
+# danger zone and then failed it closed. That was the third false block in a session, and
+# the pattern behind all three is the same: a word that names a subject is not evidence of
+# an effect. `packages/telegram`, a variable called publish, a file named vercel.json —
+# all inert. What is dangerous is a verb applied to them.
+if ! printf '%s\n' "$cmd" | grep -qiE \
+  'digest:run|digest-run|pipeline[[:space:]]+(run|publish)|--publish|--no-dry-run|--live|api\.telegram\.org|sendMessage|(^|[[:space:];&|])(npx[[:space:]]+)?vercel([[:space:]]|$)|--prod|gh[[:space:]]+(workflow[[:space:]]+run|release[[:space:]]+create|api)|neonctl|prisma[[:space:]]+(migrate|db[[:space:]]+push)|/api/revalidate|(^|[;&|][[:space:]]*)(node|npx|bun|deno|bash|sh|\./)[[:space:]]*[^[:space:]]*publish'; then
+  exit 0
+fi
+
+# Package-manager housekeeping is not a pipeline run. `pnpm add`, `pnpm install` and
+# `pnpm --filter <pkg> add` reach the danger zone only through the package name.
+# ANCHORED to the entire command, not matched as a substring.
+#
+# The first version of this exemption exited 0 as soon as a package-manager verb appeared
+# ANYWHERE in the command, so `pnpm install && pnpm digest:run --no-dry-run` and
+# `pnpm add zod && vercel deploy --prod` both walked past phase 2 — verified against the
+# previous revision, which blocked both. An exemption that can be prefixed onto an
+# arbitrary command is not an exemption, it is a bypass.
+if printf '%s\n' "$cmd" | grep -qE '^[[:space:]]*pnpm([[:space:]]+--filter[[:space:]]+[^[:space:];&|]+)?[[:space:]]+(add|install|remove|update|why|list|ls|outdated)([[:space:]]+[^;&|]*)?$'; then
   exit 0
 fi
 

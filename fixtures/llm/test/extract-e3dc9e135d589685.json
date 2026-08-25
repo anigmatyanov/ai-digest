@@ -1,0 +1,12 @@
+{
+  "isRelevant": false,
+  "rejectReason": "Материал — это хронология инцидента и анализ событий, но не воспроизводимый приём, feature_impact инструмента, case_study с архитектурой решений или antipattern с механизмом отказа. Это скорее news/incident report.",
+  "type": null,
+  "techniqueKey": null,
+  "title": null,
+  "summary": null,
+  "body": null,
+  "steps": [],
+  "tags": [],
+  "claims": []
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@ai-digest/profiles",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Topic profiles. The only place a topic exists.",
+  "exports": { ".": { "types": "./dist/schema.d.ts", "default": "./dist/schema.js" } },
+  "main": "./dist/schema.js",
+  "types": "./dist/schema.d.ts",
+  "scripts": { "build": "tsc -b", "clean": "rm -rf dist *.tsbuildinfo" },
+  "dependencies": { "zod": "^4.4.3" },
+  "devDependencies": { "@types/node": "24.13.3" }
+}

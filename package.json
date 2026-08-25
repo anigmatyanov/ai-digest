@@ -8,7 +8,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:hooks && node scripts/epics.mjs --selftest && node scripts/epics.mjs --validate-queue",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:hooks && node scripts/gen-connectors.mjs --check && pnpm profile:validate && node scripts/epics.mjs --selftest && node scripts/epics.mjs --validate-queue",
     "typecheck": "tsc -b --pretty",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -21,7 +21,12 @@
     "clean": "rm -rf packages/*/dist apps/*/dist packages/*/*.tsbuildinfo apps/*/*.tsbuildinfo",
     "build:proof": "test -f packages/core/dist/index.js && echo \"build artefact present: $(find packages/*/dist apps/*/dist -name '*.js' | wc -l | tr -d ' ') js files\"",
     "test:hooks": "bash test/hooks/run.sh",
-    "epics": "node scripts/epics.mjs"
+    "epics": "node scripts/epics.mjs",
+    "gen:connectors": "node scripts/gen-connectors.mjs",
+    "profile:validate": "pnpm build >/dev/null && node scripts/validate-profiles.mjs",
+    "digest:run": "pnpm build >/dev/null && node apps/pipeline/dist/cli.js",
+    "golden": "pnpm build >/dev/null && node scripts/golden.mjs",
+    "cost:report": "node scripts/cost-report.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

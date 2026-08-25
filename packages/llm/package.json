@@ -17,6 +17,11 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@ai-digest/core": "workspace:*"
+    "@ai-digest/core": "workspace:*",
+    "@anthropic-ai/sdk": "^0.120.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3"
   }
 }

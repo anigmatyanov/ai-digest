@@ -1,0 +1,36 @@
+{
+  "isRelevant": true,
+  "rejectReason": null,
+  "type": "antipattern",
+  "techniqueKey": "llm/coding/conceptual-integrity-decay",
+  "title": "Синдром Winchester: как агенты разваливают архитектуру кода",
+  "summary": "Когда промпт за час делает то, что раньше брал неделю, легко добавлять фичи без плана. Результат — код как Winchester Mystery House: комнаты везде, целостность потеряна. Решение в осознанной дисциплине.",
+  "body": "Coding agents снижают стоимость реализации настолько, что исчезает естественный фильтр идей. Раньше ты отбрасывал дикую фичу, потому что неделя разработки — дорого. Теперь час, и казалось бы, почему бы нет?\n\nПроблема: растёт не только скорость, но и хаос. Код обрастает странными выступами в разных направлениях. Концептуальная целостность (Mythical Man-Month) — когда ПО логично, нет сюрпризов, всё подходит друг другу — рушится.\n\nДисциплина становится целиком на тебе. Раньше время было constraint. Теперь нужно самому говорить «нет» идеям, даже если они реализуются за час. Иначе оказываешься с монстром, где сложно принимать решения, потому что нет единого плана.",
+  "steps": [
+    "Перед тем как запустить промпт на новую фичу, спроси: это развивает концепцию или добавляет комнату?",
+    "Устанавливай правила: фича должна вписаться в существующую архитектуру или требует рефакторинга всей области",
+    "Заведи code review или design review для агентских PR — даже если агент может писать быстро",
+    "Периодически проводи архитектурный аудит: есть ли части, которые живут сами по себе?"
+  ],
+  "tags": [
+    "coding-agents",
+    "architecture",
+    "technical-debt",
+    "discipline",
+    "conceptual-integrity"
+  ],
+  "claims": [
+    {
+      "text": "Agents позволяют производить тысячи строк отлаженного кода, если качество остаётся (тестированность, поддерживаемость), что в разы быстрее, чем 50-200 строк в день вручную.",
+      "quote": "If agents let you produce a thousand lines of debugged code, that really is a very meaningful improvement — as long as the code is the same quality: maintainable, tested, all of that."
+    },
+    {
+      "text": "Концептуальная целостность кода страдает, потому что низкая стоимость реализации убирает естественный фильтр на идеи.",
+      "quote": "It's very easy to keep adding new rooms, because the cost of adding those rooms is so much cheaper. What you end up with is something where the conceptual integrity falls apart"
+    },
+    {
+      "text": "Раньше дисциплина на добавление фич была принудительной — идея ждала неделю реализации. Теперь часовая реализация делает легче добавлять непланомерные фичи.",
+      "quote": "It used to be that the discipline was enforced on you by the amount of time it took... If it takes an hour, it's so much easier to justify."
+    }
+  ]
+}

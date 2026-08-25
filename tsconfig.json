@@ -1,11 +1,26 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/core" },
-    { "path": "./packages/db" },
-    { "path": "./packages/llm" },
-    { "path": "./packages/connectors" },
-    { "path": "./packages/telegram" },
-    { "path": "./apps/pipeline" }
+    {
+      "path": "./profiles"
+    },
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./packages/db"
+    },
+    {
+      "path": "./packages/llm"
+    },
+    {
+      "path": "./packages/connectors"
+    },
+    {
+      "path": "./packages/telegram"
+    },
+    {
+      "path": "./apps/pipeline"
+    }
   ]
 }

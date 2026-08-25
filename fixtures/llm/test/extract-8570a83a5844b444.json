@@ -1,0 +1,47 @@
+{
+  "isRelevant": true,
+  "rejectReason": null,
+  "type": "case_study",
+  "techniqueKey": "anthropic/code_gen/claude_code_autonomous_game",
+  "title": "Построение 3D-игры в браузере с помощью Claude Fable 5 и GitHub Pages",
+  "summary": "Как за один промпт заставить Claude Code автономно собрать полноценную браузерную игру, используя GitHub Pages для лайв-превью и OpenAI API для генерации текстур.",
+  "body": "Отправил Claude Fable 5 две картинки из четырёхлетней давности (концепт игры про raccoon heists, сгенерированный GPT-3 и DALL-E) вместе с промптом написать 3D-игру для браузера. Дал ей полную автономию (\"Work independently - do not ask me to make any further design decisions\"), интегрировал с GitHub Pages для лайв-превью изменений, и она собрала рабочую игру.\n\nКлючевой момент: использование GitHub Pages как dev-сервера. Создаёшь репу, настраиваешь Pages на ветку, которую создаёт Claude Code — через 30 секунд после каждого пуша видишь изменения. Это решает проблему тестирования во время работы агента.\n\nClaude сама выбрала Three.js, написала gen_textures.py для генерации текстур через gpt-image-2, создала title screen, потом добавила игровую логику. Интересное решение: использовала Playwright для самотестирования (скриншоты своей работы, проверка на разных разрешениях). Когда заметила, что raccoon невидим на мобильных экранах, сама исправила.\n\nВ результате: полностью функциональная игра с 3D-графикой, процедурной музыкой (WebAudio), touch-контролами для мобилей, сохранением прогресса в localStorage. Никаких API-запросов при запуске — все текстуры и изображения сгенерированы один раз и закоммичены. Из неудач: игра скучная, слишком простая, нет командной механики (несмотря на название). Но как стартовая точка от одного промпта — впечатляющий результат.",
+  "steps": [
+    "Создай репозиторий на GitHub (public или private)",
+    "Запусти Claude Code for web и дай промпт с картинками и требованиями (мобильная оптимизация, self-contained game, commit часто)",
+    "Настрой GitHub Pages в Settings → Pages: выбери \"Deploy from a branch\" и ветку claude/...",
+    "Жди 30 секунд после каждого пуша — изменения будут доступны на yourname.github.io/repo-name/",
+    "Дай Claude доступ к OpenAI API key для генерации текстур и изображений (она сама будет писать скрипты вроде gen_textures.py)",
+    "Попроси логировать изменения в notes.md (помогает отследить, что делает агент)",
+    "Пусть она сама себя тестирует Playwright-ом и делает скриншоты для проверки"
+  ],
+  "tags": [
+    "claude",
+    "code_generation",
+    "autonomous_agents",
+    "game_dev",
+    "github_pages",
+    "webgl",
+    "three.js",
+    "image_generation",
+    "playwright"
+  ],
+  "claims": [
+    {
+      "text": "Claude может строить браузерные игры с минимальным вмешательством человека, если дать ей полную автономию и возможность видеть результаты в реальном времени.",
+      "quote": "I said \"Work independently - do not ask me to make any further design decisions\" because I wanted to see if it could produce a full, working game without any further input from me."
+    },
+    {
+      "text": "GitHub Pages + Claude Code branch позволяет видеть изменения через 30 секунд после каждого пуша, решая проблему dev-preview при разработке агентом.",
+      "quote": "Navigate to the Settings -> Pages area for the repository, select \"Deploy from a branch\", pick the branch name, and hit Save. That's all it takes! Within about 30 seconds of each push the latest content will be visible at yourname.github.io/your-repo/ ."
+    },
+    {
+      "text": "Claude может использовать внешние API (OpenAI image generation) для заполнения пробелов в возможностях и сама писать скрипты для генерации ассетов.",
+      "quote": "Giving Claude access to an OpenAI key turns out to work really well for filling in gaps in its capabilities - in this case we needed some way to generate images to use as textures."
+    },
+    {
+      "text": "Claude способна самотестировать код с помощью Playwright, делать скриншоты и исправлять найденные баги без участия человека.",
+      "quote": "Then it built out the first basic version of the game, then decided to \"smoke-test in the pre-installed Chromium\" using Playwright. This meant it could take screenshots of its own work and eyeball them."
+    }
+  ]
+}

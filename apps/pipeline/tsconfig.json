@@ -4,8 +4,12 @@
     "rootDir": "./src",
     "outDir": "./dist"
   },
-  "include": ["src/**/*"],
-  "exclude": ["**/*.test.ts"],
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "**/*.test.ts"
+  ],
   "references": [
     {
       "path": "../../packages/core"
@@ -21,6 +25,9 @@
     },
     {
       "path": "../../packages/telegram"
+    },
+    {
+      "path": "../../profiles"
     }
   ]
 }

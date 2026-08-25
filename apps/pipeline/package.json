@@ -17,10 +17,17 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@ai-digest/connectors": "workspace:*",
     "@ai-digest/core": "workspace:*",
     "@ai-digest/db": "workspace:*",
     "@ai-digest/llm": "workspace:*",
-    "@ai-digest/connectors": "workspace:*",
-    "@ai-digest/telegram": "workspace:*"
+    "@ai-digest/telegram": "workspace:*",
+    "@ai-digest/profiles": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3"
+  },
+  "bin": {
+    "digest": "./dist/cli.js"
   }
 }

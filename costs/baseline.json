@@ -1,0 +1,10 @@
+{
+  "status": "measured",
+  "totalUsd": 0.046004,
+  "byStage": {
+    "extract": 0.046004
+  },
+  "recordedAt": "2026-08-25T09:40:17.470Z",
+  "promptVersion": "test@1",
+  "calls": 6
+}
