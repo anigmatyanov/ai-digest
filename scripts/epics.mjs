@@ -103,8 +103,19 @@ export function parseEpic(path) {
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
   if (!m) return { path, file: basename(path), error: "no frontmatter block" };
 
+  // Frontmatter is read line by line, but a value may span lines: Prettier reflows a long
+  // inline sequence into a block one, and a human may write either form. Reading only
+  // `key: value` turned E-001's nine serialize labels into an empty list — silently, in a
+  // commit whose diff looked like pure formatting. Join continuation lines first.
+  const rawLines = m[1].split(/\r?\n/);
+  const joined = [];
+  for (const line of rawLines) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*:/.test(line)) joined.push(line);
+    else if (joined.length && line.trim() !== "") joined[joined.length - 1] += " " + line.trim();
+  }
+
   const fm = {};
-  for (const line of m[1].split(/\r?\n/)) {
+  for (const line of joined) {
     const cleaned = stripComment(line);
     const kv = /^([A-Za-z_][A-Za-z0-9_]*):(.*)$/.exec(cleaned);
     if (kv) fm[kv[1]] = coerce(kv[2]);
@@ -208,11 +219,24 @@ export function validateEpic(epic) {
       "autonomy: auto over a risky area (telegram / prisma / prompts) — use plan-gated or paired",
     );
   }
-  for (const label of Object.keys(SERIALIZE_LABELS)) {
-    const touched = scopePaths.some((p) => SERIALIZE_LABELS[label].some((h) => p.startsWith(h)));
-    if (touched && !toArray(fm.serialize).includes(label)) {
+  // Most-specific label wins. `profiles/schema.ts` matches both the exact `profile-schema`
+  // hotspot and the `profiles/` directory prefix; demanding both labels would serialise
+  // every profile edit against every schema edit for no reason.
+  const declared = toArray(fm.serialize);
+  for (const sp of scopePaths) {
+    let bestLabel = null;
+    let bestLen = -1;
+    for (const [label, hotspots] of Object.entries(SERIALIZE_LABELS)) {
+      for (const h of hotspots) {
+        if (sp.startsWith(h) && h.length > bestLen) {
+          bestLen = h.length;
+          bestLabel = label;
+        }
+      }
+    }
+    if (bestLabel && !declared.includes(bestLabel)) {
       problems.push(
-        `## Объём touches a "${label}" hotspot but the label is missing from serialize:`,
+        `## Объём path "${sp}" is a "${bestLabel}" hotspot but that label is missing from serialize:`,
       );
     }
   }
@@ -364,6 +388,32 @@ function main() {
   if (has("--next-id")) {
     console.log(nextId(epics));
     return;
+  }
+
+  // Runs in `pnpm verify`. An epic past draft has already cleared the rubric, so any
+  // failure here means something corrupted it after the fact — a reformat, a bad merge,
+  // a hand edit. E-001 silently lost all nine serialize labels to a Prettier reflow and
+  // nothing noticed, because validation only ever ran when someone remembered to ask.
+  if (has("--validate-queue")) {
+    const queue = epics.filter((e) => e.fm && String(e.fm.status) !== "draft");
+    let failed = 0;
+    for (const e of queue) {
+      const r = validateEpic(e);
+      if (!r.ok) {
+        failed++;
+        console.log(`FAIL  ${e.file}  (${r.id})`);
+        r.problems.forEach((x) => console.log(`        ✗ ${x}`));
+      }
+      // Warnings do not fail the gate, but they must be visible. A weakened criterion
+      // ("коннектор работает" replacing a КОГДА/ТО outcome) cannot be caught by a rubric
+      // that never saw the original — that is /epic-review's job, against merge-base.
+      // What the rubric CAN say is that the criterion is no longer an observable outcome,
+      // and swallowing that leaves the only available signal unprinted.
+      r.warnings.forEach((x) => console.log(`WARN  ${e.file}: ${x}`));
+    }
+    if (failed === 0)
+      console.log(`epic queue ok: ${queue.length} non-draft epic(s) still satisfy the rubric`);
+    process.exit(failed > 0 ? 1 : 0);
   }
 
   if (has("--validate")) {

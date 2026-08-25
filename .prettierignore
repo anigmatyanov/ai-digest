@@ -6,3 +6,8 @@ runs/
 pnpm-lock.yaml
 fixtures/
 golden/
+
+# Prettier reflows a long inline YAML sequence in epic frontmatter into a block one.
+# The parser now handles both forms, but formatting must not silently rewrite a contract:
+# that is how E-001 lost all nine of its serialize labels in a diff that looked cosmetic.
+docs/epics/
