@@ -21,19 +21,29 @@ Guidance for Claude Code working in this repository.
 - `profiles/` — TS-профили тем. `fixtures/` — записанные ответы источников. `golden/` — замороженные входы и эталонные выпуски. `costs/` — baseline стоимости.
 - `docs/epics/` — очередь работы для агентов. `scripts/` — CLI-обвязка.
 
-### Окружение (грабля, измеренная 2026-08-25)
+### Окружение
 
-**В системном `PATH` этой машины лежит Node v20.15 (EOL с апреля 2026), а не Node 24.** Рабочий Node 24 стоит через Homebrew и не слинкован: `/opt/homebrew/opt/node@24/bin`. Формулы `node@20` и `node@22` в этом brew **сломаны** — их динамические библиотеки (`icu4c`, `simdjson`) снесены апгрейдом, `node --version` падает с `dyld: Library not loaded`.
-
-`pnpm` ставится через corepack и по умолчанию доступен только как `corepack pnpm`. Этого **недостаточно**: скрипт `verify` внутри себя вызывает `pnpm typecheck`, и вложенный вызов упадёт с `sh: pnpm: command not found`. Нужен настоящий `pnpm` в `PATH`.
-
-Перед любой командой в этом репозитории:
+Node 24 и pnpm стоят глобально и работают из любой оболочки — префиксы к `PATH` не нужны:
 
 ```bash
-export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
-corepack enable --install-directory ~/.local/bin   # один раз; затем ~/.local/bin в PATH
-node --version   # обязан напечатать v24.x, а не v20.x
+node --version    # v24.19.0  (/opt/homebrew/bin/node)
+pnpm --version    # 11.23.0   (~/.local/bin/pnpm, corepack shim)
 ```
+
+Как это устроено, чтобы починка была воспроизводима: `node@24` слинкован через
+`brew link --overwrite --force node@24`, а `~/.local/bin` уже стоял в `PATH` **раньше**
+`/usr/local/bin`, поэтому системный Node v20.15 из старого `.pkg` остался на месте и ничему
+не мешает — он просто проигрывает в порядке поиска. Ничего в `~/.zshrc` не правилось.
+
+Две грабли, которые здесь уже наступали:
+
+- **Формулы `node@20` и `node@22` в этом brew сломаны** — у них снесены `icu4c`/`simdjson`,
+  и `node --version` падает с `dyld: Library not loaded`. Ими ничего не пользуется; если
+  понадобятся, их надо переустанавливать, а не чинить.
+- **Шим, который создаёт `corepack enable`, привязан к точной версии Cellar**
+  (`.../Cellar/node@24/24.19.0/...`) и сломается на следующем `brew upgrade node@24`.
+  Здесь он перенаправлен на стабильный `/opt/homebrew/opt/node@24/...`. Если `pnpm` вдруг
+  исчезнет после апгрейда — причина эта.
 
 ## Команды
 
