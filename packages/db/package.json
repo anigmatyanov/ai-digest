@@ -17,6 +17,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@ai-digest/core": "workspace:*"
+    "@ai-digest/core": "workspace:*",
+    "@neondatabase/serverless": "^1.1.0"
   }
 }

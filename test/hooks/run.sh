@@ -41,6 +41,16 @@ expect 2 "block: vercel deploy --prod"       $G "$(cjson 'vercel deploy --prod')
 expect 2 "block: gh workflow run"            $G "$(cjson 'gh workflow run digest.yml')"
 expect 2 "block: prisma migrate deploy"      $G "$(cjson 'npx prisma migrate deploy')"
 expect 2 "block: neonctl branches delete"    $G "$(cjson 'neonctl branches delete main')"
+# neonctl read verbs pass, mutating ones do not. Added after the guard blocked `neonctl me`
+# during Neon setup: a false block on an inspection command is how a rail gets switched off
+# for good. NOTE: this file cannot be written by a shell heredoc — the guard judges the whole
+# command text, and the delete cases above appear inside it. Use a file-writing tool.
+expect 0 "neonctl me"                        $G "$(cjson 'neonctl me')"
+expect 0 "neonctl projects list"             $G "$(cjson 'neonctl projects list')"
+expect 0 "neonctl connection-string"         $G "$(cjson 'neonctl connection-string --project-id x --pooled')"
+expect 0 "neonctl read verb in zsh -lc"      $G "$(cjson "zsh -lc 'neonctl me | head -5'")"
+expect 2 "block: neonctl projects delete"    $G "$(cjson 'neonctl projects delete --project-id x')"
+expect 2 "block: neonctl roles reset-pw"     $G "$(cjson 'neonctl roles reset-password --project-id x --name owner')"
 expect 2 "block: ambiguous publish shape"    $G "$(cjson 'node dist/publish-everything.js --now')"
 expect 0 "bypass: ALLOW_LIVE_EFFECTS=1"      $G "$(cjson 'ALLOW_LIVE_EFFECTS=1 pnpm digest:run --profile profiles/ai-lifehacks.ts')"
 

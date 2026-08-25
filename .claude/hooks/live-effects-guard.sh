@@ -67,6 +67,18 @@ if printf '%s' "$cmd" | grep -qE '^[[:space:]]*(cat|less|head|tail|bat|grep|rg|s
   exit 0
 fi
 
+# neonctl read-only verbs. Added after the guard blocked `neonctl me` and
+# `neonctl projects list` — both pure reads. The rail is against accident, not a sandbox:
+# a false block that costs a retry on every inspection command trains people to disable it.
+# `connection-string` is read-only but PRINTS A SECRET; allowed because the setup flow
+# needs it, and because a value the owner can already read from the Neon console is not
+# protected by refusing to print it here.
+if printf '%s\n' "$cmd" | grep -qE '(^|[[:space:];&|(]|zsh -lc .|bash -c .)neonctl[[:space:]]+(me|projects[[:space:]]+(list|get)|branches[[:space:]]+(list|get)|databases[[:space:]]+list|roles[[:space:]]+list|operations[[:space:]]+list|connection-string)([[:space:]]|$|.$)'; then
+  if ! printf '%s\n' "$cmd" | grep -qE 'neonctl[[:space:]]+[a-z-]+[[:space:]]+(create|delete|update|set|reset|restore|rename)'; then
+    exit 0
+  fi
+fi
+
 case "$cmd" in
   *"--dry-run"*|*"--fixtures"*)
     # A dry run is the sanctioned path — unless it also carries a publish flag.

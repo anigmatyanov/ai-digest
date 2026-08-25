@@ -36,9 +36,33 @@ gh secret list          # должен показать ANTHROPIC_API_KEY
 
 ## 2. Проект в Neon
 
+**Настроено 2026-08-25, проверено запросом к базе:**
+
+| | |
+|---|---|
+| project id | `jolly-art-09773061` |
+| регион | `aws-us-east-1` (рядом с раннерами Actions) |
+| версия | PostgreSQL 18.6 |
+| `vector` | 0.8.6 — доступен, ещё не установлен (это делает миграция E-001) |
+| `pg_trgm` / `pgcrypto` | 1.6 / 1.4 — доступны |
+| FTS `russian` | есть — поиск по сайту будет с русской морфологией, а не `simple` |
+| таблиц в `public` | 0 |
+| холодный старт | ~660 мс на первом запросе, дальше ~500 мс |
+
+Обе строки подключения лежат в `.env` (он в `.gitignore`). Проверка живости:
+
+```bash
+cd packages/db && node --input-type=module -e '
+import { neon } from "@neondatabase/serverless";
+import { readFileSync } from "node:fs";
+const url = /^DATABASE_URL="(.+)"$/m.exec(readFileSync("../../.env","utf8"))[1];
+console.log((await neon(url)`select version()`)[0].version);
+'
+```
+
 Free-тир: 0.5 ГБ хранилища, 100 CU-часов в месяц, scale-to-zero, pgvector в комплекте. Для еженедельного дайджеста этого хватает — при условии ретеншна (см. `.claude/rules/pipeline.md`), иначе 0.5 ГБ кончатся примерно за 8 месяцев.
 
-**2.1. Аккаунт и авторизация CLI.** `neonctl` уже установлен (4.3.0).
+**2.1. Аккаунт и авторизация CLI.** ✅ сделано. `neonctl` 4.3.0, авторизован.
 
 ```bash
 neonctl auth          # откроет браузер; регистрация через GitHub — самый короткий путь
@@ -98,3 +122,15 @@ node scripts/epics.mjs --plan     # что можно брать в работу
 gh secret list                    # что уже есть в CI
 neonctl me                        # авторизован ли Neon CLI
 ```
+
+## Ротация пароля роли
+
+Пароль `neondb_owner` был однажды передан через переписку и считается засвеченным. Ротация:
+
+```bash
+neonctl roles reset-password --project-id jolly-art-09773061 --name neondb_owner
+```
+
+**Эта команда намеренно блокируется** хуком `live-effects-guard.sh` — она мутирует состояние базы. Запускать её нужно осознанно, с префиксом `ALLOW_LIVE_EFFECTS=1`, либо из консоли Neon. После ротации перезаписать обе строки в `.env` (см. 2.3) и, если секреты уже в CI, обновить их там.
+
+Правило на будущее: строку подключения не передавать через чат — забирать сразу в `.env` командой `neonctl connection-string`.
