@@ -16,6 +16,10 @@ out/
 # pipeline run artefacts (state of record lives in Postgres, not here)
 runs/
 
+# neonctl drops this in the cwd; it holds the org id, not a secret, but it is
+# machine-local state and has no business in the repo.
+.neon
+
 # local tooling
 .DS_Store
 *.log
