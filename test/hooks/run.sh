@@ -79,6 +79,20 @@ expect 2 "block: neonctl roles reset-pw"     $G "$(cjson 'neonctl roles reset-pa
 expect 2 "block: ambiguous publish shape"    $G "$(cjson 'node dist/publish-everything.js --now')"
 expect 0 "bypass: ALLOW_LIVE_EFFECTS=1"      $G "$(cjson 'ALLOW_LIVE_EFFECTS=1 pnpm digest:run --profile profiles/ai-lifehacks.ts')"
 
+# ── git-branch-delete-guard ─────────────────────────────────────────────────────
+#
+# The cases that need real branches (delivered-to-main vs genuinely unmerged) are not here:
+# a battery must not create and destroy branches in the repo it is run from. They were
+# exercised live when the guard was written — a squash-merged epic branch passed, a branch
+# holding a file main never received was refused by name. What IS pinned here is the shape
+# handling, which is where a rewrite would break it silently.
+B=git-branch-delete-guard.sh
+expect 0 "listing branches is not a deletion"  $B "$(cjson 'git branch')"
+expect 0 "git branch -vv is not a deletion"    $B "$(cjson 'git branch -vv')"
+expect 0 "remote deletion is out of scope"     $B "$(cjson 'git push origin --delete some-branch')"
+expect 0 "unknown local branch is left to git" $B "$(cjson 'git branch -D no-such-branch-here')"
+expect 2 "deletion with no branch named"       $B "$(cjson 'git branch -D')"
+
 # ── git-add-pathspec-guard ──────────────────────────────────────────────────────
 A=git-add-pathspec-guard.sh
 expect 0 "safe: git add <path>"               $A "$(cjson 'git add packages/core/src/errors.ts')"

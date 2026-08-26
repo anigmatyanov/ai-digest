@@ -35,7 +35,8 @@
       "Bash(bash -n*)",
       "Read",
       "Write",
-      "Edit"
+      "Edit",
+      "Bash(git branch -D*)"
     ],
     "deny": [
       "Bash(rm -rf /)",
@@ -43,7 +44,6 @@
       "Bash(git push --force*)",
       "Bash(git push -f*)",
       "Bash(git reset --hard*)",
-      "Bash(git branch -D*)",
       "Bash(git push origin --delete*)",
       "Bash(npx prisma migrate reset*)",
       "Bash(neonctl projects delete*)"
@@ -54,27 +54,48 @@
       {
         "matcher": "Agent",
         "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/intercept-agent-worktree.sh" }
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/intercept-agent-worktree.sh"
+          }
         ]
       },
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/enforce-subagent-worktree.sh" }
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/enforce-subagent-worktree.sh"
+          }
         ]
       },
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/live-effects-guard.sh" },
-          { "type": "command", "command": "bash .claude/hooks/git-add-pathspec-guard.sh" }
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/live-effects-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/git-add-pathspec-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/git-branch-delete-guard.sh"
+          }
         ]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "bash .claude/hooks/post-git-cleanup.sh" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/post-git-cleanup.sh"
+          }
+        ]
       }
     ]
   }
