@@ -15,6 +15,7 @@
  */
 
 import type { Candidate, Card, Issue, RawItem, Repo } from "@ai-digest/core";
+import { DatabaseUnavailableError, hostOf } from "./client.js";
 import { Prisma } from "./generated/client.js";
 import type { PrismaClient } from "./generated/client.js";
 
@@ -59,6 +60,36 @@ export class PrismaRepo implements Repo {
    * exactly that history to tell "answered 200 with nothing" from "was never asked".
    */
   static async open(
+    prisma: PrismaClient,
+    topic: TopicIdentity,
+    sources: readonly SourceIdentity[],
+    connectionString?: string,
+  ): Promise<PrismaRepo> {
+    try {
+      return await PrismaRepo.reconcile(prisma, topic, sources);
+    } catch (error) {
+      // Measured 2026-08-29 against an unreachable host: the adapter throws an `ErrorEvent`
+      // whose `message` is the EMPTY STRING. Not a bad message — no message. A run would
+      // die with a blank line and nothing to act on, so the first thing that touches the
+      // database is wrapped here, where the host and the variable that supplied it are
+      // still known.
+      //
+      // NAMED LIMIT: only this call is wrapped. A connection lost mid-run still surfaces as
+      // the adapter's own error, because wrapping every query would bury the ones that
+      // genuinely say something (constraint violations name their constraint).
+      if (error instanceof DatabaseUnavailableError) throw error;
+      const detail = String((error as { message?: string })?.message ?? "").trim();
+      throw new DatabaseUnavailableError(
+        connectionString === undefined ? "<host not supplied to open()>" : hostOf(connectionString),
+        "pooled (application)",
+        detail === ""
+          ? "The driver reported no message at all — the usual shape of an unreachable host."
+          : detail,
+      );
+    }
+  }
+
+  private static async reconcile(
     prisma: PrismaClient,
     topic: TopicIdentity,
     sources: readonly SourceIdentity[],
@@ -131,7 +162,15 @@ export class PrismaRepo implements Repo {
       // updated in place, which is why a restart costs nothing and creates nothing.
       const row = await this.prisma.rawItem.upsert({
         where: { sourceId_externalId: { sourceId, externalId: item.externalId } },
-        create: { ...data, sourceId, externalId: item.externalId, fetchedAt: new Date(item.fetchedAt) },
+        // Same reasoning as Candidate: the pipeline's id is kept so that references
+        // built later in the run resolve. A database-minted id would break them.
+        create: {
+          ...data,
+          id: item.id,
+          sourceId,
+          externalId: item.externalId,
+          fetchedAt: new Date(item.fetchedAt),
+        },
         update: data,
       });
       // The persisted id is returned, not the one the caller generated: a candidate created
@@ -191,6 +230,11 @@ export class PrismaRepo implements Repo {
         },
         create: {
           ...data,
+          // The pipeline's own id is kept rather than letting the database mint one:
+          // cards created later in the same run reference this value, and a fresh cuid
+          // here breaks that reference with a foreign key violation. On a rerun the row
+          // already exists and its original id wins, which is the behaviour we want.
+          id: c.id,
           topicId: this.topicId,
           canonicalUrlHash: c.canonicalUrlHash,
           firstSeenAt: new Date(c.firstSeenAt),

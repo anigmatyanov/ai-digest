@@ -23,7 +23,7 @@ import {
   selectStage,
   type RunContext,
 } from "@ai-digest/core";
-import type { Card, Issue } from "@ai-digest/core";
+import type { Candidate, Card, Issue, RawItem } from "@ai-digest/core";
 import {
   AnthropicGateway,
   BudgetGuard,
@@ -40,6 +40,15 @@ export interface CliOptions {
   useFixtures: boolean;
   dryRun: boolean;
   record: boolean;
+  /**
+   * Persist to Postgres even under --fixtures.
+   *
+   * Exists because the two choices were conflated: --fixtures selected the recorded model
+   * responses AND the in-memory repository, so there was no way to exercise the database
+   * without paying for live model calls. Separating them is what makes the persistence
+   * guarantees testable at all — and the default stays fully offline.
+   */
+  useDb: boolean;
   outDir: string;
 }
 
@@ -53,6 +62,7 @@ export function parseArgs(argv: string[]): CliOptions {
     useFixtures: argv.includes("--fixtures"),
     dryRun: argv.includes("--dry-run"),
     record: argv.includes("--record"),
+    useDb: argv.includes("--db"),
     outDir: get("--out") ?? "runs",
   };
 }
@@ -98,7 +108,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 2;
   }
 
-  const profileModule = (await import(pathToFileURL(resolveProfilePath(options.profilePath)).href)) as {
+  const profileModule = (await import(
+    pathToFileURL(resolveProfilePath(options.profilePath)).href
+  )) as {
     profile?: Record<string, unknown>;
   };
   const profile = profileModule.profile;
@@ -140,27 +152,29 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   // failing on a cold Neon branch, on a neighbour's unapplied migration and on a flaky
   // network — none of which say anything about the pipeline, and all of which end with
   // someone deleting the gate.
-  const repo = options.useFixtures
-    ? new MemoryRepo()
-    : await PrismaRepo.open(
-        createPrismaClient(requireEnv("DATABASE_URL", env)),
-        {
-          slug: String(profile["slug"]),
-          title: String(profile["title"]),
-          lang: String(profile["lang"]),
-          profileJson: profile,
-          // Insertion order of a TS module object is stable across runs of the same file,
-          // so a plain stringify is reproducible here. The hash exists to tell two profile
-          // VERSIONS apart, not to canonicalise key order.
-          profileHash: contentHash(JSON.stringify(profile)),
-        },
-        (profile["sources"] as SourceConfig[]).map((s) => ({
-          key: s.key,
-          kind: s.kind,
-          enabled: s.enabled ?? true,
-          weight: s.weight ?? 1,
-        })),
-      );
+  const repo =
+    options.useFixtures && !options.useDb
+      ? new MemoryRepo()
+      : await PrismaRepo.open(
+          createPrismaClient(requireEnv("DATABASE_URL", env)),
+          {
+            slug: String(profile["slug"]),
+            title: String(profile["title"]),
+            lang: String(profile["lang"]),
+            profileJson: profile,
+            // Insertion order of a TS module object is stable across runs of the same file,
+            // so a plain stringify is reproducible here. The hash exists to tell two profile
+            // VERSIONS apart, not to canonicalise key order.
+            profileHash: contentHash(JSON.stringify(profile)),
+          },
+          (profile["sources"] as SourceConfig[]).map((s) => ({
+            key: s.key,
+            kind: s.kind,
+            enabled: s.enabled ?? true,
+            weight: s.weight ?? 1,
+          })),
+          requireEnv("DATABASE_URL", env),
+        );
   const degraded: { sourceKey: string; reason: string }[] = [];
 
   const ctx: RunContext = {
@@ -187,6 +201,28 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     degraded,
   });
 
+  const captureRawItems = {
+    name: "persist-raw",
+    allowEmptyInput: true,
+    run: async (items: RawItem[]) => repo.putRawItems(items),
+  };
+
+  // Candidates are persisted before anything references them.
+  //
+  // Found by the first live run against Postgres: nothing in the pipeline wrote candidates
+  // at all, and cards referencing them failed with a foreign key violation. MemoryRepo
+  // could not surface this — an in-memory Map has no referential integrity, so the gap was
+  // invisible for as long as the only repository was in memory.
+  //
+  // Rejected candidates are persisted too, on purpose: `prefiltered_out` is a terminal
+  // STATUS, not an absence. Storing only survivors would throw away the funnel the run
+  // report and the silent-death detector both read.
+  const captureCandidates = {
+    name: "persist-candidates",
+    allowEmptyInput: false,
+    run: async (candidates: Candidate[]) => repo.putCandidates(candidates),
+  };
+
   // Cards are stashed on the way past so `render` can read them back through the repo —
   // the same path the database-backed run uses.
   const captureCards = {
@@ -199,7 +235,16 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   };
 
   const { output, report } = await runPipeline(
-    [ingest, normalizeStage, prefilterStage, extractStage, captureCards, selectStage] as never,
+    [
+      ingest,
+      captureRawItems,
+      normalizeStage,
+      prefilterStage,
+      captureCandidates,
+      extractStage,
+      captureCards,
+      selectStage,
+    ] as never,
     [],
     ctx,
     { artefactDir, degradedSources: degraded },
@@ -218,7 +263,14 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   // here, and a number that exists only in scrollback cannot be compared against later.
   await writeFile(
     join(artefactDir, "cost.json"),
-    JSON.stringify({ ...budget.report(), promptVersion: (profile["prompts"] as { promptVersion: string }).promptVersion }, null, 2) + "\n",
+    JSON.stringify(
+      {
+        ...budget.report(),
+        promptVersion: (profile["prompts"] as { promptVersion: string }).promptVersion,
+      },
+      null,
+      2,
+    ) + "\n",
     "utf8",
   );
 
