@@ -10,6 +10,11 @@ export default tseslint.config(
       "**/dist/**",
       "**/.next/**",
       "**/coverage/**",
+      // A sibling agent's worktree is not this tree's code. Measured 2026-08-29: with two
+      // agents running, `pnpm lint` in the main tree reported 393 errors, every one of them
+      // from unfinished work on someone else's branch. That turns the shared gate red for
+      // reasons the person running it cannot fix, which is how a gate stops being trusted.
+      ".claude/worktrees/**",
       "runs/**",
       "fixtures/**",
       "golden/**",
