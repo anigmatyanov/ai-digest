@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  https://github.com/acme-labs/widget-cli/commits/main.atom
+
+  HAND-AUTHORED 2026-08-29, not recorded: an agent session has no network, and this
+  repository does not exist. What it is evidence of is the SHAPE GitHub's commits feed
+  serves - `tag:github.com,2008:Grit::Commit/<sha>` ids, one <link rel="alternate"> per
+  entry, <author><name> (a bot committer appears as `<name>something[bot]</name>`), and
+  <content type="html"> wrapping the commit message in a <pre>.
+
+  Seven entries on purpose: three ordinary commits, two merges and two bot commits. The
+  test asserts 7 with no exclude rules configured and 3 with them, which is what makes
+  "filtered by the source's config, not by a constant in the code" observable rather than
+  asserted.
+-->
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
+  <id>tag:github.com,2008:/acme-labs/widget-cli/commits/main</id>
+  <link type="text/html" rel="alternate" href="https://github.com/acme-labs/widget-cli/commits/main"/>
+  <link type="application/atom+xml" rel="self" href="https://github.com/acme-labs/widget-cli/commits/main.atom"/>
+  <title>Recent Commits to widget-cli:main</title>
+  <updated>2026-08-26T16:04:19Z</updated>
+  <entry>
+    <id>tag:github.com,2008:Grit::Commit/9f1c0ab4e7d25c3f6a0b8e11d4c77aa903b21e5d</id>
+    <link type="text/html" rel="alternate" href="https://github.com/acme-labs/widget-cli/commit/9f1c0ab4e7d25c3f6a0b8e11d4c77aa903b21e5d"/>
+    <title>Cache the compiled exclude patterns per run, not per item</title>
+    <updated>2026-08-26T16:04:19Z</updated>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/4410231?s=30&amp;v=4"/>
+    <author>
+      <name>marta-ok</name>
+    </author>
+    <content type="html">&lt;pre style='white-space:pre-wrap;'&gt;Cache the compiled exclude patterns per run, not per item&#13;&#13;Compiling a RegExp per candidate showed up as 8% of the ingest stage on a 900-item run.&lt;/pre&gt;</content>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Grit::Commit/2c88b7d1043fa9e6b5210cc4f8e93711aa6d0f42</id>
+    <link type="text/html" rel="alternate" href="https://github.com/acme-labs/widget-cli/commit/2c88b7d1043fa9e6b5210cc4f8e93711aa6d0f42"/>
+    <title>Merge pull request #412 from acme-labs/fix-empty-config</title>
+    <updated>2026-08-25T11:47:02Z</updated>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/9927741?s=30&amp;v=4"/>
+    <author>
+      <name>rk-dev</name>
+    </author>
+    <content type="html">&lt;pre style='white-space:pre-wrap;'&gt;Merge pull request #412 from acme-labs/fix-empty-config&#13;&#13;Treat an empty config file as an empty object&lt;/pre&gt;</content>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Grit::Commit/5a3e91f70bb2c4487d1e60a9f3c8d2b41e7708cc</id>
+    <link type="text/html" rel="alternate" href="https://github.com/acme-labs/widget-cli/commit/5a3e91f70bb2c4487d1e60a9f3c8d2b41e7708cc"/>
+    <title>Bump actions/checkout from 4 to 5</title>
+    <updated>2026-08-25T04:12:37Z</updated>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/in/29110?s=30&amp;v=4"/>
+    <author>
+      <name>dependabot[bot]</name>
+    </author>
+    <content type="html">&lt;pre style='white-space:pre-wrap;'&gt;Bump actions/checkout from 4 to 5&lt;/pre&gt;</content>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Grit::Commit/be40772c19d8a5f3e0b16dd94c7a2f5501993ab8</id>
+    <link type="text/html" rel="alternate" href="https://github.com/acme-labs/widget-cli/commit/be40772c19d8a5f3e0b16dd94c7a2f5501993ab8"/>
+    <title>Treat an empty config file as an empty object</title>
+    <updated>2026-08-24T19:58:44Z</updated>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/9927741?s=30&amp;v=4"/>
+    <author>
+      <name>rk-dev</name>
+    </author>
+    <content type="html">&lt;pre style='white-space:pre-wrap;'&gt;Treat an empty config file as an empty object&#13;&#13;An empty file parsed to null and every lookup on it threw two stages later.&lt;/pre&gt;</content>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Grit::Commit/07d6ba3c58e1f9042bb7c6ad3e19f8054c2a7361</id>
+    <link type="text/html" rel="alternate" href="https://github.com/acme-labs/widget-cli/commit/07d6ba3c58e1f9042bb7c6ad3e19f8054c2a7361"/>
+    <title>Merge branch 'main' into release-4.2</title>
+    <updated>2026-08-23T08:30:15Z</updated>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/4410231?s=30&amp;v=4"/>
+    <author>
+      <name>marta-ok</name>
+    </author>
+    <content type="html">&lt;pre style='white-space:pre-wrap;'&gt;Merge branch 'main' into release-4.2&lt;/pre&gt;</content>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Grit::Commit/c1957e0b8d3f46a2079ecb15d8f3a04b6d21ee79</id>
+    <link type="text/html" rel="alternate" href="https://github.com/acme-labs/widget-cli/commit/c1957e0b8d3f46a2079ecb15d8f3a04b6d21ee79"/>
+    <title>chore: regenerate the CLI reference</title>
+    <updated>2026-08-22T02:00:11Z</updated>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/in/15368?s=30&amp;v=4"/>
+    <author>
+      <name>github-actions[bot]</name>
+    </author>
+    <content type="html">&lt;pre style='white-space:pre-wrap;'&gt;chore: regenerate the CLI reference&lt;/pre&gt;</content>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Grit::Commit/44b0e2d7f8c31a9506de7b2c4a1f8d9370e56b12</id>
+    <link type="text/html" rel="alternate" href="https://github.com/acme-labs/widget-cli/commit/44b0e2d7f8c31a9506de7b2c4a1f8d9370e56b12"/>
+    <title>Stream stage output instead of buffering until exit</title>
+    <updated>2026-08-21T13:26:50Z</updated>
+    <media:thumbnail height="30" width="30" url="https://avatars.githubusercontent.com/u/4410231?s=30&amp;v=4"/>
+    <author>
+      <name>marta-ok</name>
+    </author>
+    <content type="html">&lt;pre style='white-space:pre-wrap;'&gt;Stream stage output instead of buffering until exit&#13;&#13;A long run printed nothing for minutes and looked hung.&lt;/pre&gt;</content>
+  </entry>
+</feed>
