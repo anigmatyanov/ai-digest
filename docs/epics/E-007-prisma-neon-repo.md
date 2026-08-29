@@ -1,7 +1,7 @@
 ---
 id: E-007
 title: "Прогон переживает перезапуск: Prisma-схема, Neon и реальный Repo вместо MemoryRepo"
-status: draft
+status: todo
 priority: P1
 size: M
 autonomy: paired

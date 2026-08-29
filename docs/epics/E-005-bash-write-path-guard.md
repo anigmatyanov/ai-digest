@@ -1,7 +1,7 @@
 ---
 id: E-005
 title: "Запись через Bash за пределы репозитория блокируется так же, как через файловые инструменты"
-status: draft
+status: todo
 priority: P2
 size: S
 autonomy: plan-gated

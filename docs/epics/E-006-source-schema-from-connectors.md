@@ -1,7 +1,7 @@
 ---
 id: E-006
 title: "Схема конфига источника живёт рядом с коннектором, а не в profiles/schema.ts"
-status: draft
+status: todo
 priority: P1
 size: M
 autonomy: plan-gated

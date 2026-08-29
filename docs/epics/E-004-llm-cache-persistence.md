@@ -6,7 +6,7 @@ priority: P2
 size: M
 autonomy: plan-gated
 area: llm
-depends_on: [E-001]
+depends_on: [E-001, E-007]
 serialize: [prisma-schema, llm-costs, core-types, pipeline-contract]
 
 costs_llm: true
