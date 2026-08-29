@@ -58,8 +58,11 @@ expect 2 "block: diff from config datasource" $G "$(cjson 'prisma migrate diff -
 expect 2 "block: prisma migrate dev"         $G "$(cjson 'prisma migrate dev --name init')"
 # neonctl read verbs pass, mutating ones do not. Added after the guard blocked `neonctl me`
 # during Neon setup: a false block on an inspection command is how a rail gets switched off
-# for good. NOTE: this file cannot be written by a shell heredoc — the guard judges the whole
-# command text, and the delete cases above appear inside it. Use a file-writing tool.
+# for good. NOTE (was true until 2026-08-29): this file could not be written by a shell
+# heredoc, because the guard judged the whole command text and the delete cases above appear
+# inside it. E-012 made heredoc BODIES data, so that is no longer a limitation — but a
+# file-writing tool is still the calmer path, since a heredoc feeding an interpreter is
+# deliberately still judged in full.
 # `gh api` GETs pass, anything that makes gh switch to POST does not. Added 2026-08-29
 # after the guard blocked a lookup of an action's commit SHA while CI was being written.
 expect 0 "gh api: plain GET"                   $G "$(cjson 'gh api repos/actions/checkout/git/ref/tags/v5 --jq .object.sha')"
@@ -103,6 +106,83 @@ expect 2 "block: neonctl projects delete"    $G "$(cjson 'neonctl projects delet
 expect 2 "block: neonctl roles reset-pw"     $G "$(cjson 'neonctl roles reset-password --project-id x --name owner')"
 expect 2 "block: ambiguous publish shape"    $G "$(cjson 'node dist/publish-everything.js --now')"
 expect 0 "bypass: ALLOW_LIVE_EFFECTS=1"      $G "$(cjson 'ALLOW_LIVE_EFFECTS=1 pnpm digest:run --profile profiles/ai-lifehacks.ts')"
+
+# ── /finish-branch's own cleanup step (E-012) ───────────────────────────────────
+#
+# The blanket refusal above named /finish-branch as the sanctioned path and then refused the
+# command /finish-branch step 4 prescribes. The carve-out is keyed on STATE, never on the
+# name: the hook cannot know who invoked it, and a branch merely CALLED `agent/<something>`
+# would let any command drop a neighbour's database by choosing a name. What it checks is
+# the one thing that is only true after the cleanup already happened — the worktree is gone
+# from `git worktree list` and the slot directory is released.
+#
+# Measured with the carve-out removed (see the epic's report): exactly the two `expect 0`
+# cases here turn red, and every `expect 2` below stays green. That split is the evidence
+# that the carve-out is not a bypass — a hole would have moved the reds the other way.
+#
+# The live-worktree case needs a real entry in `git worktree list`, so the battery registers
+# one with `--no-checkout` (cheap: no files are written) and removes it three lines later.
+# The held-slot case needs only a directory, exactly like _probe_mine below.
+MAIN_TREE="$(git -C "$ROOT" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
+PROBE_SLOT="$MAIN_TREE/.claude/worktrees/.slots/_probe"
+PROBE_WT="$MAIN_TREE/.claude/worktrees/_probe_live_wt"
+PROBE_BR="agent/probe-live-worktree"
+# Self-heal after an interrupted run: a leftover probe branch with no worktree would make
+# the live-worktree case pass for the wrong reason.
+git -C "$ROOT" worktree remove --force "$PROBE_WT" >/dev/null 2>&1
+git -C "$ROOT" worktree prune >/dev/null 2>&1
+git -C "$ROOT" branch -D "$PROBE_BR" >/dev/null 2>&1
+mkdir -p "$PROBE_SLOT" && printf '%s\n' "agent/probe-held-slot" > "$PROBE_SLOT/branch"
+git -C "$ROOT" worktree add --no-checkout -b "$PROBE_BR" "$PROBE_WT" HEAD >/dev/null 2>&1
+
+expect 0 "neon: an orphaned agent branch goes"  $G "$(cjson 'neonctl branches delete agent/e-999-merged-and-gone')"
+expect 0 "neon: the form finish-branch writes"  $G "$(cjson 'command -v neonctl >/dev/null && neonctl branches delete "agent/e-999-merged-and-gone"')"
+expect 2 "neon: a live worktree is not orphaned" $G "$(cjson "neonctl branches delete $PROBE_BR")"
+expect 2 "neon: a held slot is not orphaned"    $G "$(cjson 'neonctl branches delete agent/probe-held-slot')"
+expect 2 "neon: main is not agent/<slug>"       $G "$(cjson 'neonctl branches delete main')"
+expect 2 "neon: production is not agent/<slug>" $G "$(cjson 'neonctl branches delete production')"
+expect 2 "neon: agent/../main is not a slug"    $G "$(cjson 'neonctl branches delete agent/../main')"
+expect 2 "neon: no branch named is fail-closed" $G "$(cjson 'neonctl branches delete --project-id x')"
+expect 2 "neon: databases delete stays banned"  $G "$(cjson 'neonctl databases delete --project-id x --name d')"
+expect 2 "neon: carve-out is not a prefix"      $G "$(cjson 'neonctl branches delete agent/e-999-merged-and-gone && neonctl branches delete main')"
+expect 2 "neon: nor a prefix for a deploy"      $G "$(cjson 'neonctl branches delete agent/e-999-merged-and-gone && vercel deploy --prod')"
+expect 2 "neon: nor for a project deletion"     $G "$(cjson 'neonctl branches delete agent/e-999-merged-and-gone; neonctl projects delete --project-id x')"
+expect 2 "neon: nor for a role reset"           $G "$(cjson 'neonctl branches delete agent/e-999-merged-and-gone && neonctl roles reset-password --name owner')"
+
+git -C "$ROOT" worktree remove --force "$PROBE_WT" >/dev/null 2>&1
+git -C "$ROOT" branch -D "$PROBE_BR" >/dev/null 2>&1
+git -C "$ROOT" worktree prune >/dev/null 2>&1
+rm -f "$PROBE_SLOT/branch"; rmdir "$PROBE_SLOT" 2>/dev/null
+
+# ── naming a command is not running it (E-012, second defect) ───────────────────
+#
+# Four false blocks in one session, one of them on the commit message describing this very
+# defect. The guard judges the command STRING — that is what makes it work at all — so the
+# fix is narrow rather than clever: before matching, the text loses heredoc BODIES and the
+# quoted argument of -m/--message/-F/--file. The flags themselves survive, so `gh api -F`
+# is still disqualified above, and the deny message still prints the original command.
+#
+# The two `expect 2` cases are the ones that keep this honest: a heredoc feeding a shell is
+# executable text, and `-m` must not launder the verb standing next to it.
+MSG_ONE=$'git commit -m "guard: neonctl branches delete was refused unconditionally"'
+MSG_MULTI=$'git commit -m "feat(E-012): the carve-out\n\nvercel deploy --prod stays blocked; only the text is exempt."'
+HD_DATA=$'tee /tmp/e012-notes.md <<\'EOF\'\nvercel deploy --prod\nneonctl branches delete main\nEOF'
+HD_SHELL=$'bash <<\'EOF\'\nvercel deploy --prod\nEOF'
+expect 0 "text: a commit message quoting a ban" $G "$(cjson "$MSG_ONE")"
+expect 0 "text: a multi-line commit message"    $G "$(cjson "$MSG_MULTI")"
+expect 0 "text: a heredoc body is data"         $G "$(cjson "$HD_DATA")"
+expect 2 "text: a heredoc feeding a shell runs" $G "$(cjson "$HD_SHELL")"
+expect 2 "text: -m does not launder the verb"   $G "$(cjson 'vercel deploy --prod -m "harmless note"')"
+expect 2 "text: an unterminated heredoc word"   $G "$(cjson 'pnpm digest:run --no-dry-run <<EOF')"
+expect 2 "text: -F keeps disqualifying gh api"  $G "$(cjson 'gh api repos/x/y/issues -F "title=just a note"')"
+# Both of these were found by the self-check, not by design: with the terminator lookahead
+# removed and with the quoted-argument test removed, the battery stayed fully green. A left
+# shift that reads as an unterminated heredoc must not swallow the line after it, and `-m`
+# must launder only a QUOTED argument — otherwise `-m --publish` deletes the flag that makes
+# the run live.
+SHIFT_THEN_RUN=$'echo "1 << SHIFT"\nvercel deploy --prod'
+expect 2 "text: a shift swallows no later line"  $G "$(cjson "$SHIFT_THEN_RUN")"
+expect 2 "text: -m launders only a quoted arg"   $G "$(cjson 'pnpm digest:run --fixtures -m --publish')"
 
 # ── git-branch-delete-guard ─────────────────────────────────────────────────────
 #
