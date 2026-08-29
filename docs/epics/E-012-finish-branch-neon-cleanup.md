@@ -1,7 +1,7 @@
 ---
 id: E-012
 title: "Гард пропускает удаление Neon-ветки, которое сам /finish-branch и предписывает"
-status: draft
+status: todo
 priority: P2
 size: S
 autonomy: plan-gated
