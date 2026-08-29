@@ -6,7 +6,14 @@ export {
   SourceUnavailableError,
 } from "./errors.js";
 
-export { EnvSchema, loadEnv, loadEnvFile, MissingEnvError, requireEnv, resetEnvCache } from "./env.js";
+export {
+  EnvSchema,
+  loadEnv,
+  loadEnvFile,
+  MissingEnvError,
+  requireEnv,
+  resetEnvCache,
+} from "./env.js";
 export type { Env } from "./env.js";
 
 export {
@@ -24,19 +31,33 @@ export {
 
 export type { Candidate, Card, Claim, Issue, RawItem, RawItemDraft } from "./types.js";
 
-export { defineStage, EmptyStageInputError, sizeOf } from "./pipeline/stage.js";
+export {
+  CANDIDATE_TERMINAL_STATUSES,
+  defineStage,
+  EmptyStageInputError,
+  isCandidateTerminal,
+  mergeCandidate,
+  sizeOf,
+  withResume,
+} from "./pipeline/stage.js";
 export type {
+  CandidateFilter,
+  CardFilter,
   LlmGateway,
   LlmUsage,
   Repo,
   RunContext,
+  RunJournalEntry,
   Stage,
   StageDefinition,
+  StageJournalEntry,
   StageLogger,
+  StageResume,
+  StageWork,
 } from "./pipeline/stage.js";
 
 export { formatFunnel, runPipeline } from "./pipeline/pipeline.js";
-export type { PipelineOptions, RunReport, StageRecord } from "./pipeline/pipeline.js";
+export type { PipelineOptions, RunReport, SettledCycle, StageRecord } from "./pipeline/pipeline.js";
 
 export { assertPlausibleYield, defineConnector, parseOrDrift } from "./connector.js";
 export type {
@@ -74,4 +95,8 @@ export {
   selectCards,
   selectStage,
 } from "./pipeline/stages/select-render.js";
-export type { SelectionPolicy, SelectionOutcome, SelectProfile } from "./pipeline/stages/select-render.js";
+export type {
+  SelectionPolicy,
+  SelectionOutcome,
+  SelectProfile,
+} from "./pipeline/stages/select-render.js";

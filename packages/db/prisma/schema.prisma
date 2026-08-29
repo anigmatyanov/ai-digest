@@ -298,10 +298,16 @@ model PipelineRun {
 
 /// One stage of one run. `checkpoint` is what a restart resumes from — a batch id, a page
 /// cursor, the last processed candidate — so a killed run continues instead of restarting.
+///
+/// It is written by the orchestrator and by nothing else: a stage does not know it is a
+/// stage, and `packages/core/src/pipeline/pipeline.ts` is the only caller of `recordStage`.
 model StageRun {
   id          String    @id @default(cuid())
   runId       String
   stage       String
+  /// running | completed | failed | skipped — `skipped` is a stage whose rows a previous
+  /// run already finished. It is a distinct value from `completed` on purpose: a stage
+  /// that did nothing and one that did the work look identical in every count.
   status      String    @default("running")
   startedAt   DateTime  @default(now())
   finishedAt  DateTime?

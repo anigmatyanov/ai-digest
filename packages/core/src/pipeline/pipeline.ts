@@ -1,7 +1,7 @@
 /**
  * Sequential stage runner.
  *
- * Two responsibilities beyond calling stages in order:
+ * Responsibilities beyond calling stages in order:
  *
  *  - It records each stage's input and output to `runs/<runId>/<stage>.{in,out}.json`.
  *    That is not a debug log: `pnpm golden` and `pnpm cost:report` read those files, so
@@ -9,17 +9,41 @@
  *  - It refuses to let a stage silently receive nothing. A quietly empty issue looks
  *    exactly like a quiet week, which is why the check is fatal by default and a stage
  *    has to opt out.
+ *  - It chooses work by the STATUS OF A ROW rather than by a step number. A run killed
+ *    halfway is restarted, not redone: a stage whose rows are already past it is skipped —
+ *    loudly, with the reason in the funnel — and one that is partly done receives only what
+ *    is left. Without this the second run re-asks the model about every candidate, which
+ *    costs real money and is invisible in a fixtures replay.
+ *  - It writes the journal (`PipelineRun` / `StageRun`), so a stage that failed halfway
+ *    leaves behind what to resume from instead of only a stack trace in a dead terminal.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { EmptyStageInputError, sizeOf, type RunContext, type Stage } from "./stage.js";
+import {
+  EmptyStageInputError,
+  isCandidateTerminal,
+  sizeOf,
+  type RunContext,
+  type Stage,
+  type StageResume,
+} from "./stage.js";
 
 export interface StageRecord {
   stage: string;
   input: number;
   output: number;
   durationMs: number;
+  /** Present when the stage did not run, and says why. Never present without a reason. */
+  skipped?: string;
+  /** Present when the stage ran on a subset because the rest was already done. */
+  resumed?: { alreadyDone: number; status: string };
+}
+
+/** Why a run stopped before its first stage. Absent on a run that had work to do. */
+export interface SettledCycle {
+  candidates: number;
+  reason: string;
 }
 
 export interface RunReport {
@@ -30,6 +54,7 @@ export interface RunReport {
   stages: StageRecord[];
   /** Sources that failed or returned implausibly little. Reported, never fatal. */
   degradedSources: { sourceKey: string; reason: string }[];
+  settled?: SettledCycle;
 }
 
 export interface PipelineOptions {
@@ -46,6 +71,9 @@ export interface PipelineOptions {
    */
   degradedSources?: { sourceKey: string; reason: string }[];
 }
+
+/** How many row ids a checkpoint carries before it starts summarising instead. */
+const CHECKPOINT_ID_LIMIT = 200;
 
 /**
  * Run `stages` in order, threading each output into the next input.
@@ -65,41 +93,192 @@ export async function runPipeline(
   const records: StageRecord[] = [];
   let current: unknown = initialInput;
 
-  for (const stage of stages) {
-    const inputSize = sizeOf(current);
-    if (inputSize === 0 && !stage.allowEmptyInput) {
-      throw new EmptyStageInputError(
-        stage.name,
-        records.length === 0
-          ? "It was the first stage, so the run started with nothing to do."
-          : `The previous stage "${records[records.length - 1]?.stage}" produced 0 items.`,
-      );
-    }
+  const finish = async (settled?: SettledCycle): Promise<RunReport> => {
+    const report: RunReport = {
+      runId: ctx.runId,
+      cycleId: ctx.cycleId,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      stages: records,
+      degradedSources: [...(options.degradedSources ?? [])],
+      ...(settled ? { settled } : {}),
+    };
+    await writeArtefact(options.artefactDir, "report.json", report);
+    return report;
+  };
 
-    await writeArtefact(options.artefactDir, `${stage.name}.in.json`, current);
-    const t0 = Date.now();
-    const output = await (stage.run as (i: unknown, c: RunContext) => Promise<unknown>)(
-      current,
-      ctx,
-    );
-    const durationMs = Date.now() - t0;
-    await writeArtefact(options.artefactDir, `${stage.name}.out.json`, output);
-
-    records.push({ stage: stage.name, input: inputSize, output: sizeOf(output), durationMs });
-    ctx.log.debug(`stage ${stage.name}: ${inputSize} -> ${sizeOf(output)} (${durationMs}ms)`);
-    current = output;
+  // ── Is there anything left to do for this cycle at all? ──
+  //
+  // Asked BEFORE the first stage and answered with a read, because the criterion is "not a
+  // single write": re-running a finished cycle must not even re-upsert the raw items it
+  // already has. The read is deliberately narrow — this cycle's candidates — so a fresh
+  // cycle, whose set is empty, is never mistaken for a finished one.
+  const settled = await settledCycle(ctx);
+  if (settled) {
+    ctx.log.debug(`pipeline: ${settled.reason}`);
+    return { output: undefined, report: await finish(settled) };
   }
 
-  const report: RunReport = {
+  try {
+    for (const stage of stages) {
+      const resume = stage.resume as StageResume<unknown, unknown> | undefined;
+      let work: unknown = current;
+      let resumed: StageRecord["resumed"];
+
+      if (resume?.select) {
+        const decision = await resume.select(current, ctx);
+        if (decision.kind === "skip") {
+          const outputSize = sizeOf(decision.output);
+          records.push({
+            stage: stage.name,
+            input: 0,
+            output: outputSize,
+            durationMs: 0,
+            skipped: decision.reason,
+          });
+          ctx.log.debug(`stage ${stage.name}: skipped — ${decision.reason}`);
+          await ctx.repo.recordStage({
+            runId: ctx.runId,
+            cycleId: ctx.cycleId,
+            stage: stage.name,
+            status: "skipped",
+            inputCount: 0,
+            outputCount: outputSize,
+          });
+          current = decision.output;
+          continue;
+        }
+        work = decision.input;
+        if (decision.alreadyDone !== undefined && decision.alreadyDone > 0) {
+          resumed = { alreadyDone: decision.alreadyDone, status: decision.doneStatus ?? "done" };
+        }
+      }
+
+      const inputSize = sizeOf(work);
+      if (inputSize === 0 && !stage.allowEmptyInput) {
+        throw new EmptyStageInputError(
+          stage.name,
+          records.length === 0
+            ? "It was the first stage, so the run started with nothing to do."
+            : `The previous stage "${records[records.length - 1]?.stage}" produced 0 items.`,
+        );
+      }
+
+      await writeArtefact(options.artefactDir, `${stage.name}.in.json`, work);
+      const t0 = Date.now();
+      let output: unknown;
+      try {
+        output = await (stage.run as (i: unknown, c: RunContext) => Promise<unknown>)(work, ctx);
+        if (resume?.commit) output = await resume.commit(work, output, ctx);
+      } catch (error) {
+        // The one place a checkpoint can honestly be written: the orchestrator knows what
+        // it handed over and knows none of it was confirmed done. Written before the throw
+        // propagates, because the process may not survive to write it later.
+        await ctx.repo.recordStage({
+          runId: ctx.runId,
+          cycleId: ctx.cycleId,
+          stage: stage.name,
+          status: "failed",
+          inputCount: inputSize,
+          outputCount: 0,
+          checkpoint: checkpointOf(work),
+          error: describe(error),
+        });
+        throw error;
+      }
+      const durationMs = Date.now() - t0;
+      await writeArtefact(options.artefactDir, `${stage.name}.out.json`, output);
+
+      const outputSize = sizeOf(output);
+      records.push({
+        stage: stage.name,
+        input: inputSize,
+        output: outputSize,
+        durationMs,
+        ...(resumed ? { resumed } : {}),
+      });
+      ctx.log.debug(`stage ${stage.name}: ${inputSize} -> ${outputSize} (${durationMs}ms)`);
+      await ctx.repo.recordStage({
+        runId: ctx.runId,
+        cycleId: ctx.cycleId,
+        stage: stage.name,
+        status: "completed",
+        inputCount: inputSize,
+        outputCount: outputSize,
+      });
+      current = output;
+    }
+  } catch (error) {
+    const report = await finish();
+    await ctx.repo.recordRun({
+      runId: ctx.runId,
+      cycleId: ctx.cycleId,
+      status: "failed",
+      metrics: report,
+      error: describe(error),
+    });
+    throw error;
+  }
+
+  const report = await finish();
+  await ctx.repo.recordRun({
     runId: ctx.runId,
     cycleId: ctx.cycleId,
-    startedAt,
-    finishedAt: new Date().toISOString(),
-    stages: records,
-    degradedSources: [...(options.degradedSources ?? [])],
-  };
-  await writeArtefact(options.artefactDir, "report.json", report);
+    status: "completed",
+    metrics: report,
+  });
   return { output: current, report };
+}
+
+/**
+ * Whether this cycle has candidates and every one of them is terminal.
+ *
+ * Two ways to get this wrong, both guarded above and both tested: an empty set satisfies
+ * "every" vacuously and would stop a first run before it began, and keying on the first row
+ * rather than on all of them would stop a resumed run that still had work in it.
+ *
+ * NAMED CONSEQUENCE: a cycle whose candidates all ended terminal is closed for the rest of
+ * the week — items published later are not picked up until the next cycle. That is what the
+ * criterion asks for, and re-opening it needs a signal this function does not have. Filed
+ * as E-011a.
+ */
+async function settledCycle(ctx: RunContext): Promise<SettledCycle | undefined> {
+  const rows = await ctx.repo.listCandidates({ cycleId: ctx.cycleId });
+  if (rows.length === 0) return undefined;
+  if (!rows.every((row) => isCandidateTerminal(row.status))) return undefined;
+
+  const counts = new Map<string, number>();
+  for (const row of rows) counts.set(row.status, (counts.get(row.status) ?? 0) + 1);
+  const summary = [...counts.entries()].map(([status, n]) => `${n} ${status}`).join(", ");
+  return {
+    candidates: rows.length,
+    reason:
+      `all ${rows.length} candidate(s) of cycle ${ctx.cycleId} are already in a terminal ` +
+      `status (${summary}) — nothing to do, and nothing was written`,
+  };
+}
+
+/** What a restart resumes from: the rows this stage was handed and did not finish. */
+function checkpointOf(work: unknown): unknown {
+  if (!Array.isArray(work)) return { resumeFrom: "stage-input", inputCount: sizeOf(work) };
+  const ids = work
+    .map((row: unknown) =>
+      typeof row === "object" && row !== null && typeof (row as { id?: unknown }).id === "string"
+        ? (row as { id: string }).id
+        : undefined,
+    )
+    .filter((id): id is string => id !== undefined);
+  return {
+    resumeFrom: "rows",
+    pending: work.length,
+    ids: ids.slice(0, CHECKPOINT_ID_LIMIT),
+    truncated: ids.length > CHECKPOINT_ID_LIMIT,
+  };
+}
+
+function describe(error: unknown): string {
+  if (error instanceof Error) return `${error.name}: ${error.message}`;
+  return String(error);
 }
 
 async function writeArtefact(dir: string | undefined, name: string, value: unknown): Promise<void> {
@@ -110,14 +289,23 @@ async function writeArtefact(dir: string | undefined, name: string, value: unkno
 
 /** Human-readable funnel. This is what the owner reads on review instead of a diff. */
 export function formatFunnel(report: RunReport): string {
+  const header = `funnel (run ${report.runId}, cycle ${report.cycleId}):`;
+  if (report.settled) return [header, `  nothing to do: ${report.settled.reason}`].join("\n");
+
   const width = Math.max(...report.stages.map((s) => s.stage.length), 5);
   const lines = report.stages.map((s) => {
+    // A skipped stage prints its reason instead of an arrow. A stage that quietly did
+    // nothing is indistinguishable from a broken one, so the reason is not optional.
+    if (s.skipped !== undefined) {
+      return `  ${s.stage.padEnd(width)}  skipped: ${s.skipped} (${s.output} already in hand)`;
+    }
     const drop = s.input - s.output;
     const note = drop > 0 ? `  (-${drop})` : "";
-    return `  ${s.stage.padEnd(width)}  ${String(s.input).padStart(5)} -> ${String(s.output).padStart(5)}${note}  ${s.durationMs}ms`;
+    const resumed = s.resumed
+      ? `  [resumed: ${s.resumed.alreadyDone} already ${s.resumed.status}]`
+      : "";
+    return `  ${s.stage.padEnd(width)}  ${String(s.input).padStart(5)} -> ${String(s.output).padStart(5)}${note}  ${s.durationMs}ms${resumed}`;
   });
   const degraded = report.degradedSources.map((d) => `  ! ${d.sourceKey}: ${d.reason}`);
-  return [`funnel (run ${report.runId}, cycle ${report.cycleId}):`, ...lines, ...degraded].join(
-    "\n",
-  );
+  return [header, ...lines, ...degraded].join("\n");
 }

@@ -14,7 +14,17 @@
  * so a missing conversion is a type error instead of a string that reaches Postgres.
  */
 
-import type { Candidate, Card, Issue, RawItem, Repo } from "@ai-digest/core";
+import type {
+  Candidate,
+  CandidateFilter,
+  Card,
+  CardFilter,
+  Issue,
+  RawItem,
+  Repo,
+  RunJournalEntry,
+  StageJournalEntry,
+} from "@ai-digest/core";
 import { DatabaseUnavailableError, hostOf } from "./client.js";
 import { Prisma } from "./generated/client.js";
 import type { PrismaClient } from "./generated/client.js";
@@ -240,9 +250,92 @@ export function issueCardRows(
   return cardIds.map((cardId, position) => ({ issueId, cardId, position }));
 }
 
+/**
+ * Prisma distinguishes "JSON null" from "the column is NULL" and rejects a bare null so the
+ * choice has to be made. Every journal column here means the column.
+ */
+function json(value: unknown): Prisma.InputJsonValue | typeof Prisma.DbNull {
+  return value === undefined || value === null ? Prisma.DbNull : value;
+}
+
+/**
+ * A run attempt. `attempt` is supplied by the caller because it is derived from a COUNT of
+ * existing rows, and a function that both counts and builds arguments could not be checked
+ * without a database.
+ *
+ * NAMED LIMIT: two ticks that overlap can compute the same attempt and collide on
+ * `@@unique([topicId, cycleId, attempt])`. That is the advisory lock's job, which is
+ * explicitly out of this epic's scope; the collision is loud (a constraint violation naming
+ * its constraint), not silent.
+ */
+export function pipelineRunCreateArgs(
+  topicId: string,
+  cycleId: string,
+  attempt: number,
+): Omit<Prisma.PipelineRunCreateArgs, "select" | "include" | "omit"> {
+  return { data: { topicId, cycleId, attempt, status: "running" } };
+}
+
+/**
+ * One stage of one run, keyed on `@@unique([runId, stage])`.
+ *
+ * `startedAt` is create-only: a stage that is retried inside the same run started when it
+ * first started. `checkpoint` uses `Prisma.DbNull` rather than a bare null because Prisma
+ * distinguishes "JSON null" from "the column is NULL", and we mean the column: a completed
+ * stage has nothing to resume from.
+ */
+export function stageRunUpsertArgs(
+  runRowId: string,
+  entry: StageJournalEntry,
+  finishedAt: Date,
+): Omit<Prisma.StageRunUpsertArgs, "select" | "include" | "omit"> {
+  const data = {
+    status: entry.status,
+    inputCount: entry.inputCount,
+    outputCount: entry.outputCount,
+    checkpoint: json(entry.checkpoint),
+    error: entry.error ?? null,
+    finishedAt,
+  };
+  return {
+    where: { runId_stage: { runId: runRowId, stage: entry.stage } },
+    create: { ...data, runId: runRowId, stage: entry.stage },
+    update: data,
+  };
+}
+
+/** Closing the run row. `metrics` is the funnel, which is why it is written at the end. */
+export function pipelineRunFinishArgs(
+  runRowId: string,
+  entry: RunJournalEntry,
+  finishedAt: Date,
+): Omit<Prisma.PipelineRunUpdateArgs, "select" | "include" | "omit"> {
+  return {
+    where: { id: runRowId },
+    data: {
+      status: entry.status,
+      finishedAt,
+      // `metrics` is NOT nullable in the schema (it defaults to `{}`), so an absent one is
+      // an empty object rather than a NULL column — DbNull is rejected here by the type.
+      metrics: (entry.metrics ?? {}) as Prisma.InputJsonValue,
+    },
+  };
+}
+
 export class PrismaRepo implements Repo {
   /** sourceKey -> id. Populated by `open`, so no write path has to query for it. */
   private readonly sourceIds: ReadonlyMap<string, string>;
+
+  /**
+   * The runner's own run id -> the `pipeline_runs` row it belongs to.
+   *
+   * The runner names a run `run-<timestamp>` while the table keys on
+   * (topicId, cycleId, attempt); nothing in the schema stores the runner's name, so the
+   * association is held here for the life of the process. One entry in practice — a repo
+   * instance serves one run — and a Map rather than a field so a second run id cannot
+   * silently reuse the first run's row.
+   */
+  private readonly pipelineRunIds = new Map<string, string>();
 
   private constructor(
     private readonly prisma: PrismaClient,
@@ -381,10 +474,31 @@ export class PrismaRepo implements Repo {
     return out;
   }
 
-  async listCandidates(filter?: { status?: Candidate["status"] }): Promise<Candidate[]> {
+  async listCandidates(filter?: CandidateFilter): Promise<Candidate[]> {
     const rows = await this.prisma.candidate.findMany({
-      where: { topicId: this.topicId, ...(filter?.status ? { status: filter.status } : {}) },
+      // Scoped to the cycle whenever the caller names one. Without it a resumed run reads
+      // every candidate the topic has ever had, and "what is left to do this week" is
+      // answered with the whole history. `@@index([topicId, status])` and `@@index([cycleId])`
+      // already cover this; a composite index would need a migration and has not been earned.
+      where: {
+        topicId: this.topicId,
+        ...(filter?.status !== undefined
+          ? {
+              status:
+                typeof filter.status === "string"
+                  ? filter.status
+                  : { in: filter.status.map((v) => v) },
+            }
+          : {}),
+        ...(filter?.cycleId ? { cycleId: filter.cycleId } : {}),
+      },
       include: { rawItems: { select: { rawItemId: true } } },
+      // Deterministic, and not for tidiness. Since E-011 the work `extract` does is the
+      // FIRST `maxCandidatesToExtract` rows of this read, so an unordered `findMany` means
+      // the cap picks arbitrary candidates and two runs over identical data can produce
+      // different issues. Postgres guarantees no order without an ORDER BY, and it happily
+      // returns insertion order right up until the day a row is updated.
+      orderBy: [{ firstSeenAt: "asc" }, { id: "asc" }],
     });
     return rows.map((r) => ({
       id: r.id,
@@ -416,9 +530,20 @@ export class PrismaRepo implements Repo {
     return out;
   }
 
-  async listCards(): Promise<Card[]> {
+  async listCards(filter?: CardFilter): Promise<Card[]> {
     const rows = await this.prisma.card.findMany({
-      where: { candidate: { topicId: this.topicId } },
+      // A card has no cycle column; it belongs to the cycle of its candidate, so the scope
+      // is expressed as a join rather than duplicated onto the card.
+      where: {
+        candidate: {
+          topicId: this.topicId,
+          ...(filter?.cycleId ? { cycleId: filter.cycleId } : {}),
+        },
+      },
+      // The order of this read IS the order of the issue: `select` walks the cards in the
+      // order it receives them and `issueCardRows` numbers them by index. Before E-011 that
+      // order came from the array `extract` had just built; now it comes from here.
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
     return rows.map((r) => ({
       id: r.id,
@@ -453,5 +578,33 @@ export class PrismaRepo implements Repo {
     ]);
 
     return { ...issue, id: row.id, createdAt: iso(row.createdAt) };
+  }
+
+  /**
+   * Find or create the `pipeline_runs` row this journal entry belongs to.
+   *
+   * The attempt number is a COUNT of what is already there, which is why this is not an
+   * upsert: there is no key to upsert on until the number is known.
+   */
+  private async pipelineRunId(runId: string, cycleId: string): Promise<string> {
+    const known = this.pipelineRunIds.get(runId);
+    if (known !== undefined) return known;
+    const attempt =
+      (await this.prisma.pipelineRun.count({ where: { topicId: this.topicId, cycleId } })) + 1;
+    const row = await this.prisma.pipelineRun.create(
+      pipelineRunCreateArgs(this.topicId, cycleId, attempt),
+    );
+    this.pipelineRunIds.set(runId, row.id);
+    return row.id;
+  }
+
+  async recordStage(entry: StageJournalEntry): Promise<void> {
+    const runRowId = await this.pipelineRunId(entry.runId, entry.cycleId);
+    await this.prisma.stageRun.upsert(stageRunUpsertArgs(runRowId, entry, new Date()));
+  }
+
+  async recordRun(entry: RunJournalEntry): Promise<void> {
+    const runRowId = await this.pipelineRunId(entry.runId, entry.cycleId);
+    await this.prisma.pipelineRun.update(pipelineRunFinishArgs(runRowId, entry, new Date()));
   }
 }

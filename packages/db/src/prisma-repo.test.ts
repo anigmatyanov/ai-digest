@@ -32,9 +32,12 @@ import {
   cardUpsertArgs,
   issueCardRows,
   issueUpsertArgs,
+  pipelineRunCreateArgs,
+  pipelineRunFinishArgs,
   PrismaRepo,
   rawItemUpsertArgs,
   sourceUpsertArgs,
+  stageRunUpsertArgs,
   topicUpsertArgs,
 } from "./prisma-repo.js";
 import type { SourceIdentity, TopicIdentity } from "./prisma-repo.js";
@@ -364,6 +367,10 @@ interface FakeModel {
   findMany: (args: Record<string, unknown>) => PendingOp<unknown[]>;
   deleteMany: (args: Record<string, unknown>) => PendingOp<{ count: number }>;
   createMany: (args: Record<string, unknown>) => PendingOp<{ count: number }>;
+  /** The journal's own three: a run row is counted, created and later updated. */
+  count: (args: Record<string, unknown>) => PendingOp<number>;
+  create: (args: Record<string, unknown>) => PendingOp<Record<string, unknown>>;
+  update: (args: Record<string, unknown>) => PendingOp<Record<string, unknown>>;
 }
 
 /** Fixed so a row's `createdAt` is an assertable value rather than the wall clock. */
@@ -373,6 +380,8 @@ class FakePrisma {
   readonly calls: Recorded[] = [];
   /** Rows `findMany` should hand back, by model name. */
   readonly rows: Record<string, unknown[]> = {};
+  /** What `count` should answer, by model name. Drives the run's attempt number. */
+  readonly counts: Record<string, number> = {};
   private readonly seq = new Map<string, number>();
 
   readonly topic = this.model("topic");
@@ -383,6 +392,8 @@ class FakePrisma {
   readonly card = this.model("card");
   readonly issue = this.model("issue");
   readonly issueCard = this.model("issueCard");
+  readonly pipelineRun = this.model("pipelineRun");
+  readonly stageRun = this.model("stageRun");
 
   readonly $transaction = (ops: readonly PendingOp<unknown>[]): Promise<unknown[]> => {
     this.calls.push({
@@ -420,6 +431,9 @@ class FakePrisma {
       findMany: (args) => this.pending(name, "findMany", args, this.rows[name] ?? []),
       deleteMany: (args) => this.pending(name, "deleteMany", args, { count: 0 }),
       createMany: (args) => this.pending(name, "createMany", args, { count: 0 }),
+      count: (args) => this.pending(name, "count", args, this.counts[name] ?? 0),
+      create: (args) => this.pending(name, "create", args, this.nextRow(name)),
+      update: (args) => this.pending(name, "update", args, this.nextRow(name)),
     };
   }
 
@@ -650,5 +664,221 @@ describe("no connection is opened by this suite", () => {
   it("the repository under test never saw a real client", () => {
     const fake = new FakePrisma();
     expect(fake.asClient()).toBeInstanceOf(FakePrisma);
+  });
+});
+
+// ─────────────────────── reads narrowed to the cycle (E-011) ───────────────────────
+
+describe("a read that has to answer «what is left in THIS week»", () => {
+  // A repository holds the whole history of its topic; a run owns one cycle. Choosing work
+  // by row status against an unscoped read answers with every week ever run, and the second
+  // issue republishes the first one's cards. Neither the offline run nor a single-topic
+  // database would show it.
+  it("listCandidates narrows to the cycle when one was named", async () => {
+    const fake = new FakePrisma();
+    const repo = await openRepo(fake);
+    await repo.listCandidates({ cycleId: "2026-W35" });
+    expect(fake.of("candidate").at(-1)!.args.where).toEqual({
+      topicId: "topic-db-1",
+      cycleId: "2026-W35",
+    });
+  });
+
+  it("listCandidates applies cycle and status together, not one instead of the other", async () => {
+    const fake = new FakePrisma();
+    const repo = await openRepo(fake);
+    await repo.listCandidates({ cycleId: "2026-W35", status: "normalized" });
+    expect(fake.of("candidate").at(-1)!.args.where).toEqual({
+      topicId: "topic-db-1",
+      status: "normalized",
+      cycleId: "2026-W35",
+    });
+  });
+
+  it("listCandidates asks for a SET of statuses with `in`, not with a stringified array", async () => {
+    const fake = new FakePrisma();
+    const repo = await openRepo(fake);
+    await repo.listCandidates({ status: ["extracted", "in_issue"] });
+    expect(fake.of("candidate").at(-1)!.args.where).toEqual({
+      topicId: "topic-db-1",
+      status: { in: ["extracted", "in_issue"] },
+    });
+  });
+
+  it("listCards reaches the cycle through the candidate, since a card has no cycle column", async () => {
+    const fake = new FakePrisma();
+    const repo = await openRepo(fake);
+    await repo.listCards({ cycleId: "2026-W35" });
+    expect(fake.argsOf("card", "findMany").where).toEqual({
+      candidate: { topicId: "topic-db-1", cycleId: "2026-W35" },
+    });
+  });
+});
+
+// ─────────────────────────── the journal's write shape (E-011) ───────────────────────────
+
+const JOURNAL_AT = new Date("2026-08-29T12:00:00.000Z");
+
+describe("stageRunUpsertArgs", () => {
+  const entry = {
+    runId: "run-2026",
+    cycleId: "2026-W35",
+    stage: "extract",
+    status: "failed" as const,
+    inputCount: 12,
+    outputCount: 0,
+    checkpoint: { resumeFrom: "rows", ids: ["cand-a"] },
+    error: "LlmContractError: the model timed out",
+  };
+
+  it("keys on (runId, stage), so a retry inside the run overwrites its own attempt", () => {
+    expect(stageRunUpsertArgs("prun-1", entry, JOURNAL_AT).where).toEqual({
+      runId_stage: { runId: "prun-1", stage: "extract" },
+    });
+  });
+
+  it("carries the checkpoint and the reason, which is the whole point of the row", () => {
+    const args = stageRunUpsertArgs("prun-1", entry, JOURNAL_AT);
+    expect(args.update).toMatchObject({
+      status: "failed",
+      checkpoint: { resumeFrom: "rows", ids: ["cand-a"] },
+      error: "LlmContractError: the model timed out",
+    });
+  });
+
+  it("means the column, not a JSON null, when a completed stage has nothing to resume from", () => {
+    // Prisma rejects a bare `null` here precisely so the choice has to be made, and a
+    // JSON null would read back as a checkpoint that exists and says nothing.
+    const done = { ...entry, status: "completed" as const, checkpoint: undefined };
+    expect(stageRunUpsertArgs("prun-1", done, JOURNAL_AT).update.checkpoint).toBe(Prisma.DbNull);
+  });
+
+  it("never rewrites startedAt: a stage retried inside a run started when it started", () => {
+    const args = stageRunUpsertArgs("prun-1", entry, JOURNAL_AT);
+    expect(Object.keys(args.update)).not.toContain("startedAt");
+    expect(Object.keys(args.update)).not.toContain("runId");
+    expect(Object.keys(args.update)).not.toContain("stage");
+  });
+
+  it("binds the row to its run and stage on create", () => {
+    const args = stageRunUpsertArgs("prun-1", entry, JOURNAL_AT);
+    expect(args.create).toMatchObject({ runId: "prun-1", stage: "extract" });
+  });
+});
+
+describe("pipelineRunCreateArgs and pipelineRunFinishArgs", () => {
+  it("opens a run as running, on the attempt the caller counted", () => {
+    expect(pipelineRunCreateArgs("topic-1", "2026-W35", 3).data).toEqual({
+      topicId: "topic-1",
+      cycleId: "2026-W35",
+      attempt: 3,
+      status: "running",
+    });
+  });
+
+  it("closes the run by its primary key, with the funnel as metrics", () => {
+    const args = pipelineRunFinishArgs(
+      "prun-1",
+      {
+        runId: "run-2026",
+        cycleId: "2026-W35",
+        status: "completed",
+        metrics: { stages: [{ stage: "extract" }] },
+      },
+      JOURNAL_AT,
+    );
+    expect(args.where).toEqual({ id: "prun-1" });
+    expect(args.data).toEqual({
+      status: "completed",
+      finishedAt: JOURNAL_AT,
+      metrics: { stages: [{ stage: "extract" }] },
+    });
+  });
+
+  it("writes an empty object rather than a NULL when there are no metrics", () => {
+    // `metrics` is NOT nullable in the schema — it defaults to `{}` — so DbNull is not a
+    // legal value for it, and passing one is a runtime error the types would not catch
+    // if this builder ever started sharing the nullable-JSON helper.
+    const args = pipelineRunFinishArgs(
+      "prun-1",
+      { runId: "r", cycleId: "c", status: "failed", metrics: undefined },
+      JOURNAL_AT,
+    );
+    expect(args.data.metrics).toEqual({});
+  });
+});
+
+describe("the journal reaches the right rows", () => {
+  it("counts existing attempts before opening one, so the unique key is not guessed", async () => {
+    const fake = new FakePrisma();
+    fake.counts.pipelineRun = 2;
+    const repo = await openRepo(fake);
+    await repo.recordStage({
+      runId: "run-2026",
+      cycleId: "2026-W35",
+      stage: "extract",
+      status: "completed",
+      inputCount: 1,
+      outputCount: 1,
+    });
+
+    expect(fake.argsOf("pipelineRun", "count").where).toEqual({
+      topicId: "topic-db-1",
+      cycleId: "2026-W35",
+    });
+    expect(fake.argsOf("pipelineRun", "create").data).toMatchObject({ attempt: 3 });
+  });
+
+  it("opens the run row once, however many stages report", async () => {
+    // One run is one row. Creating a row per stage would make `attempt` count stages and
+    // every StageRun would hang off a different run.
+    const fake = new FakePrisma();
+    const repo = await openRepo(fake);
+    for (const stage of ["ingest", "normalize", "extract"]) {
+      await repo.recordStage({
+        runId: "run-2026",
+        cycleId: "2026-W35",
+        stage,
+        status: "completed",
+        inputCount: 1,
+        outputCount: 1,
+      });
+    }
+    await repo.recordRun({
+      runId: "run-2026",
+      cycleId: "2026-W35",
+      status: "completed",
+      metrics: {},
+    });
+
+    expect(fake.of("pipelineRun").filter((c) => c.method === "create")).toHaveLength(1);
+    expect(fake.of("stageRun").filter((c) => c.method === "upsert")).toHaveLength(3);
+    const runRowId = (fake.argsOf("pipelineRun", "update").where as { id: string }).id;
+    for (const call of fake.of("stageRun")) {
+      expect((call.args.where as { runId_stage: { runId: string } }).runId_stage.runId).toBe(
+        runRowId,
+      );
+    }
+  });
+});
+
+describe("a read whose order the run depends on", () => {
+  // Postgres returns rows in no order at all unless asked. It looks like insertion order
+  // until the first UPDATE moves a row, and this pipeline updates candidates constantly.
+  it("listCandidates is ordered, because the extract cap takes the first N of it", async () => {
+    const fake = new FakePrisma();
+    const repo = await openRepo(fake);
+    await repo.listCandidates({ cycleId: "2026-W35", status: "normalized" });
+    expect(fake.of("candidate").at(-1)!.args.orderBy).toEqual([
+      { firstSeenAt: "asc" },
+      { id: "asc" },
+    ]);
+  });
+
+  it("listCards is ordered, because that order becomes the order of the issue", async () => {
+    const fake = new FakePrisma();
+    const repo = await openRepo(fake);
+    await repo.listCards({ cycleId: "2026-W35" });
+    expect(fake.argsOf("card", "findMany").orderBy).toEqual([{ createdAt: "asc" }, { id: "asc" }]);
   });
 });
