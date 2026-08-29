@@ -1,5 +1,5 @@
 {
-  "// note": "Lint-only project: the build configs deliberately exclude tests, but tests must still be type-checked by the linter. noEmit + non-composite so it never produces output.",
+  "// note": "Type-checking project for everything the build configs exclude — tests above all. The name is historical: eslint uses it as a parser project, but eslint does NOT report TypeScript errors, so until 2026-08-29 nothing ever compiled this and a type error in a test file was invisible. `pnpm typecheck` now runs it. noEmit + non-composite so it never produces output.",
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "composite": false,
