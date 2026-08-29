@@ -18,9 +18,12 @@
   },
   "dependencies": {
     "@ai-digest/core": "workspace:*",
-    "@neondatabase/serverless": "^1.1.0"
+    "@neondatabase/serverless": "^1.1.0",
+    "@prisma/adapter-neon": "^7.10.0",
+    "@prisma/client": "^7.10.0"
   },
   "devDependencies": {
-    "@types/node": "24.13.3"
+    "@types/node": "24.13.3",
+    "prisma": "7.10.0"
   }
 }

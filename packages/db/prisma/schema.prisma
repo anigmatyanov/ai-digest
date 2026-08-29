@@ -1,0 +1,309 @@
+// Persistence for the pipeline.
+//
+// The shape mirrors packages/core/src/schema/domain.ts deliberately: a table and a zod
+// schema that are designed separately drift, and the drift surfaces as data that
+// type-checks and then fails at a stage boundary. When a field changes there, it changes
+// here, in the same PR.
+//
+// What every unique key in this file is actually for: a run must survive being killed at
+// any moment and restarted without creating duplicates or paying for the same model call
+// twice. That property is bought by constraints in the database, not by checks in code —
+// a check in code races with itself the moment two ticks overlap.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated"
+
+  // ESM, because the whole repository is ESM. The legacy `prisma-client-js` generator
+  // emits CommonJS and its output cannot be imported from a `"type": "module"` package
+  // without a wrapper nobody wants to maintain.
+  moduleFormat = "esm"
+}
+
+// Prisma 7 removed `url` and `directUrl` from the schema file: connection strings for
+// migration commands live in prisma.config.ts, and the runtime connection arrives as a
+// driver adapter handed to the client. That split enforces the rule this project needed
+// anyway — a migration physically cannot reach for the pooled URL, because the pooled URL
+// is not in this file and never was.
+// `extensions = [vector]` is deliberately NOT declared. It requires the postgresqlExtensions
+// preview feature, and preview features churn between releases; the extension is created by
+// the first migration instead, which is a line of SQL that will still mean the same thing in
+// two years. Prisma does not need to know about the extension to accept
+// Unsupported("vector(384)") — it only needs Postgres to have it.
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────── topic ───────────────────────────
+
+/// A digest subject. The profile is snapshotted here, not merely referenced: a run has to
+/// stay reproducible after someone edits profiles/*.ts, and `profileHash` is what lets a
+/// later reader tell whether two runs were even configured the same way.
+model Topic {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  lang        String   @db.VarChar(2)
+  profileJson Json
+  profileHash String   @db.Char(64)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sources    Source[]
+  candidates Candidate[]
+  issues     Issue[]
+  runs       PipelineRun[]
+
+  @@map("topics")
+}
+
+/// One configured source within a topic.
+///
+/// `consecutiveFailures` and `itemsMedian` exist for the failure this product cannot
+/// otherwise see: a source that answers 200 and returns nothing. That is indistinguishable
+/// from a quiet week, so the median of past windows is what makes silence detectable.
+model Source {
+  id                  String  @id @default(cuid())
+  topicId             String
+  key                 String
+  kind                String
+  enabled             Boolean @default(true)
+  weight              Float   @default(1)
+  /// Checkpoint from the previous run, written after every page rather than at the end.
+  cursor              Json?
+  consecutiveFailures Int     @default(0)
+  itemsMedian         Float   @default(0)
+  lastFetchedAt       DateTime?
+  /// ok | degraded | paused — 3 consecutive failures degrade, 8 pause.
+  health              String  @default("ok")
+
+  topic    Topic     @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  rawItems RawItem[]
+
+  @@unique([topicId, key])
+  @@map("sources")
+}
+
+// ─────────────────────────── ingest ───────────────────────────
+
+/// Exactly what a source gave us, before interpretation.
+///
+/// `@@unique([sourceId, externalId])` is what makes ingest idempotent: re-running a
+/// killed tick re-fetches the same page and writes nothing new. Without it a restart
+/// silently doubles the funnel and the duplicate only becomes visible in the issue.
+model RawItem {
+  id          String    @id @default(cuid())
+  sourceId    String
+  externalId  String
+  url         String
+  title       String?
+  author      String?
+  publishedAt DateTime?
+  /// Cleared by retention after 60 days; the hash and the URL stay, so the item is still
+  /// deduplicable long after its text is gone.
+  body        String?
+  bodyFormat  String    @default("text")
+  lang        String?   @db.VarChar(2)
+  /// points, comments, stars, views — whatever this source exposes. Scoring reads it.
+  signals     Json      @default("{}")
+  fetchedAt   DateTime  @default(now())
+
+  source     Source              @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  candidates CandidateRawItem[]
+
+  @@unique([sourceId, externalId])
+  @@index([fetchedAt])
+  @@map("raw_items")
+}
+
+// ─────────────────────────── candidate ───────────────────────────
+
+/// One piece of news, however many sources carried it.
+///
+/// The state machine lives here and ONLY here. A second status on Card would desynchronise
+/// from this one on the first retry, which is why Card is a payload rather than a parallel
+/// automaton. Work is selected by this status, never by a step number.
+model Candidate {
+  id               String    @id @default(cuid())
+  topicId          String
+  status           String    @default("new")
+  statusReason     String?
+  canonicalUrl     String
+  /// sha256(canonicalUrl) — the key that folds five sources into one candidate.
+  canonicalUrlHash String    @db.Char(64)
+  title            String
+  lang             String?   @db.VarChar(2)
+  publishedAt      DateTime?
+  firstSeenAt      DateTime  @default(now())
+  /// sha256 of the normalised text. Also the LLM cache key, so a rerun is free.
+  contentHash      String    @db.Char(64)
+  /// Cleared by retention 90 days after the candidate reaches a terminal status.
+  extractedText    String
+
+  prefilterScore Float?
+  score          Float?
+  scoreBreakdown Json?
+
+  /// 64-bit SimHash. Cheap near-duplicate blocking before any vector work.
+  simhash   BigInt?
+  /// multilingual-e5-small, computed locally in the runner. Prisma Client cannot read
+  /// this type — every access goes through $queryRaw, isolated in src/vector.ts.
+  embedding Unsupported("vector(384)")?
+
+  duplicateOfId String?
+  cycleId       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  topic        Topic              @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  duplicateOf  Candidate?         @relation("Duplicates", fields: [duplicateOfId], references: [id])
+  duplicates   Candidate[]        @relation("Duplicates")
+  rawItems     CandidateRawItem[]
+  cards        Card[]
+
+  @@unique([topicId, canonicalUrlHash])
+  @@index([topicId, status])
+  @@index([cycleId])
+  @@map("candidates")
+}
+
+/// Which raw items produced a candidate. A join table rather than an array column because
+/// the same raw item can legitimately feed a candidate that later merges into another.
+model CandidateRawItem {
+  candidateId String
+  rawItemId   String
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  rawItem   RawItem   @relation(fields: [rawItemId], references: [id], onDelete: Cascade)
+
+  @@id([candidateId, rawItemId])
+  @@map("candidate_raw_items")
+}
+
+// ─────────────────────────── card & issue ───────────────────────────
+
+/// The written artefact. Payload of a candidate, not a second state machine.
+model Card {
+  id          String @id @default(cuid())
+  candidateId String
+  type        String
+  /// vendor/area/technique. Repeat protection keys on this, so the same trick does not
+  /// come back a month later wearing a different headline.
+  techniqueKey String
+  slug         String
+
+  title   String
+  summary String
+  body    String
+  steps   String[] @default([])
+  tags    String[] @default([])
+
+  /// Each claim carries a verbatim quote from the source. Checked deterministically the
+  /// moment the model answers — see packages/core/src/pipeline/stages/extract.ts.
+  claims      Json
+  attribution Json
+
+  /// False until every quote was found verbatim. Gates entry to an issue.
+  evidenceOk    Boolean @default(false)
+  promptVersion String
+
+  techniqueEmbedding Unsupported("vector(384)")?
+
+  createdAt DateTime @default(now())
+
+  candidate  Candidate   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  issueCards IssueCard[]
+
+  @@index([candidateId])
+  @@index([techniqueKey])
+  @@map("cards")
+}
+
+/// One issue per cycle, enforced by `@@unique([topicId, cycleId])`.
+///
+/// `reviewDeadline` is counted from `reviewSentAt` — the moment the draft actually reached
+/// the owner — and not from the scheduled time. A cron that ran forty minutes late would
+/// otherwise eat forty minutes of the cancellation window.
+model Issue {
+  id      String @id @default(cuid())
+  topicId String
+  cycleId String
+  number  Int
+  title   String
+  intro   String
+
+  /// draft | awaiting_review | publishing | published | cancelled
+  state          String    @default("draft")
+  reviewSentAt   DateTime?
+  reviewDeadline DateTime?
+  createdAt      DateTime  @default(now())
+  publishedAt    DateTime?
+
+  topic Topic       @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  cards IssueCard[]
+
+  @@unique([topicId, cycleId])
+  @@index([state, reviewDeadline])
+  @@map("issues")
+}
+
+model IssueCard {
+  issueId  String
+  cardId   String
+  position Int
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  card  Card  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@id([issueId, cardId])
+  @@unique([issueId, position])
+  @@map("issue_cards")
+}
+
+// ─────────────────────────── observability ───────────────────────────
+
+/// One attempt at one cycle.
+///
+/// `@@unique([topicId, cycleId, attempt])` plus an advisory lock in the runner is what
+/// keeps two overlapping ticks from both deciding they own the week: GitHub Actions
+/// `concurrency` does not help, because tick.yml and digest.yml are different groups.
+model PipelineRun {
+  id         String    @id @default(cuid())
+  topicId    String
+  cycleId    String
+  attempt    Int       @default(1)
+  /// running | completed | failed | budget_exhausted
+  status     String    @default("running")
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  /// Funnel counts, source health, cache hit-rate, cost. A sharp change in a transition
+  /// ratio is the earliest signal that a prompt went wrong.
+  metrics    Json      @default("{}")
+
+  topic  Topic      @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  stages StageRun[]
+
+  @@unique([topicId, cycleId, attempt])
+  @@index([startedAt])
+  @@map("pipeline_runs")
+}
+
+/// One stage of one run. `checkpoint` is what a restart resumes from — a batch id, a page
+/// cursor, the last processed candidate — so a killed run continues instead of restarting.
+model StageRun {
+  id          String    @id @default(cuid())
+  runId       String
+  stage       String
+  status      String    @default("running")
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  inputCount  Int       @default(0)
+  outputCount Int       @default(0)
+  checkpoint  Json?
+  error       String?
+
+  run PipelineRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, stage])
+  @@map("stage_runs")
+}
