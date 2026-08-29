@@ -79,7 +79,7 @@ console.log((await neon(url)`select version()`)[0].version);
 
 Free-тир: 0.5 ГБ хранилища, 100 CU-часов в месяц, scale-to-zero, pgvector в комплекте. Для еженедельного дайджеста этого хватает — при условии ретеншна (см. `.claude/rules/pipeline.md`), иначе 0.5 ГБ кончатся примерно за 8 месяцев.
 
-**2.1. Аккаунт и авторизация CLI.** ✅ сделано. `neonctl` 4.3.0, авторизован.
+**2.1. Аккаунт и авторизация CLI.** `neonctl` 4.3.0. Авторизация протухает — см. § 2.7; на 2026-08-29 требуется повторный `neonctl auth`.
 
 ```bash
 neonctl auth          # откроет браузер; регистрация через GitHub — самый короткий путь
@@ -119,12 +119,21 @@ gh secret set DATABASE_URL --body "$(grep '^DATABASE_URL=' .env | cut -d= -f2- |
 gh secret set DATABASE_URL_UNPOOLED --body "$(grep '^DATABASE_URL_UNPOOLED=' .env | cut -d= -f2- | tr -d '\"')"
 ```
 
-**2.7. Ветки для агентских worktree.** Хук `intercept-agent-worktree.sh` пытается создать ветку Neon на каждый worktree — тогда параллельные агенты не дерутся за одну базу. Пока `neonctl` не авторизован, хук честно пишет `DATABASE_URL is NOT provisioned for this slot` и не подставляет общую базу: неверный `DATABASE_URL` хуже отсутствующего, потому что миграция уедет не туда молча. После `neonctl auth` это заработает само.
+**2.7. Ветки для агентских worktree.** Хук `intercept-agent-worktree.sh` создаёт ветку Neon на каждый worktree и **записывает её строки подключения в собственный `.env` слота** — обычный файл с правами 600, не симлинк. Общий `DATABASE_URL` в него не попадает: две переменные базы вырезаются, остальные секреты (`ANTHROPIC_API_KEY`, токены Telegram) копируются как есть — они про доступ, а не про изоляцию.
 
-Проверка:
+Пока `neonctl` не авторизован, хук пишет `DATABASE_URL is NOT provisioned for this slot ... and is ABSENT from its .env` и **не подставляет общую базу**: неверный `DATABASE_URL` хуже отсутствующего, потому что миграция уедет не туда молча. Прогоны `--fixtures` от этого не зависят вовсе. После `neonctl auth` это заработает само, но **только для worktree, созданных после** — уже выданный слот свой `.env` не перечитывает.
+
+Симлинк, который здесь стоял до 2026-08-29, выглядел удобно ровно потому, что «всё работает сразу»: все агенты при этом делили одну базу, а созданные для них ветки Neon не использовал никто (E-015).
+
+**Токен `neonctl` протухает молча.** Измерено 2026-08-29: `neonctl` при истёкшем refresh-токене печатает `Authentication failed, deleting credentials...`, удаляет `~/.config/neon/credentials.json` и уходит ждать браузер 60 секунд. Из агентской сессии это не чинится — нужен `neonctl auth` от владельца. Признак: у свежих worktree в `.env` нет `DATABASE_URL`.
+
+Проверка (что видит слот — без строки подключения в выводе):
 
 ```bash
-neonctl branches list --project-id <ID>
+neonctl branches list                      # ветка на каждый живой worktree
+neonctl me                                 # авторизован ли CLI вообще
+cd .claude/worktrees/<slug> && pnpm db:status   # хост слота, не хост главного дерева
+grep -c '^DATABASE_URL' .claude/worktrees/<slug>/.env   # 1 = провижининг прошёл, 0 = нет
 ```
 
 ## 3. Telegram — позже

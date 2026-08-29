@@ -379,13 +379,138 @@ expect 0 "p: ln -sf into ~/.local/bin"        $W "$(cjson 'ln -sf /opt/homebrew/
 expect 0 "p: redirect into HOME"              $W "$(cjson "echo test > \$HOME/notes.txt")" "$MINE"
 rmdir "$ROOT/.claude/worktrees/_probe_mine" 2>/dev/null
 
-# ── intercept-agent-worktree (pass-through paths only; provisioning is not unit-testable) ──
+# ── intercept-agent-worktree (pass-through paths only; worktree creation is not unit-testable) ──
 I=intercept-agent-worktree.sh
 aj() { printf '{"tool_input":{"subagent_type":"%s","description":"%s","prompt":"%s"}}' "$1" "$2" "$3"; }
 expect 0 "pass: Explore is read-only"         $I "$(aj Explore 'search' 'find x')"
 expect 0 "pass: Plan is read-only"            $I "$(aj Plan 'design' 'plan x')"
 expect 0 "pass: quick: opt-out"               $I "$(aj general-purpose 'quick: fix typo' 'fix')"
 expect 0 "pass: retry carries the marker"     $I "$(aj general-purpose 'add rss' '[managed-worktree: agent/rss] cd ...')"
+
+# ── one database per worktree (E-015) ───────────────────────────────────────────
+#
+# What the hook's body does — `git worktree add`, `pnpm install`, a real Neon call — cannot
+# be run from a test. What CAN be run is the decision: WHICH database a slot's .env ends up
+# naming. That decision lives in .claude/hooks/_slot-env.sh precisely so these cases exist.
+#
+# The defect they were shown red on: until 2026-08-29 the hook did
+#   ln -s "$REPO_ROOT/.env" "$path/.env"
+# so every agent's DATABASE_URL resolved to the main tree's database while the Neon branch
+# created for the slot sat unused. Restoring that one line turns the six `env:` cases below
+# red. Two further breakages were tried and each moves its own cases: deleting the strip in
+# slot_env_render (the shared URL leaks in) and deleting the slot_db_pair_ok call before the
+# write (a swapped pair gets written). See the epic's report for the transcripts.
+#
+# `neonctl` is replaced by a fake script: a test must never reach the network, and it must
+# certainly never create a real Neon branch.
+# shellcheck source=../../.claude/hooks/_slot-env.sh
+source "$ROOT/.claude/hooks/_slot-env.sh"
+
+t_true()  { local l="$1"; shift; if "$@" >/dev/null 2>&1; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL  %-46s expected success\n' "$l"; fi; }
+t_false() { local l="$1"; shift; if "$@" >/dev/null 2>&1; then fail=$((fail+1)); printf 'FAIL  %-46s expected failure\n' "$l"; else pass=$((pass+1)); fi; }
+t_eq()    { if [[ "$2" == "$3" ]]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL  %-46s want=%s got=%s\n' "$1" "$2" "$3"; fi; }
+t_has()   { if printf '%s' "$3" | grep -qF -- "$2"; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL  %-46s missing %s\n' "$1" "$2"; fi; }
+t_lacks() { if printf '%s' "$3" | grep -qF -- "$2"; then fail=$((fail+1)); printf 'FAIL  %-46s must not contain %s\n' "$1" "$2"; else pass=$((pass+1)); fi; }
+
+SHARED_POOLED='postgresql://neondb_owner:sharedpw@ep-main-01-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require'
+SHARED_DIRECT='postgresql://neondb_owner:sharedpw@ep-main-01.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require'
+SLOT_POOLED='postgresql://neondb_owner:slotpw@ep-slot-07-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require'
+SLOT_DIRECT='postgresql://neondb_owner:slotpw@ep-slot-07.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require'
+
+# host parsing, by authority — a credential containing "-pooler" must not pass for a pooler
+t_eq "env: host of a pooled url"   "ep-slot-07-pooler.c-2.us-east-1.aws.neon.tech" "$(slot_db_host "$SLOT_POOLED")"
+t_eq "env: host of a direct url"   "ep-slot-07.c-2.us-east-1.aws.neon.tech"        "$(slot_db_host "$SLOT_DIRECT")"
+t_eq "env: a password is not a host" "ep-slot-07.h.neon.tech" "$(slot_db_host 'postgresql://u:my-pooler-pw@ep-slot-07.h.neon.tech/neondb')"
+t_eq "env: a port is not part of the host" "db.example.com" "$(slot_db_host 'postgresql://u:p@db.example.com:5432/neondb')"
+t_eq "env: garbage has no host"    ""                                              "$(slot_db_host 'not-a-url')"
+
+# which pairs may be written at all
+t_true  "env: a real pair is writable"        slot_db_pair_ok "$SLOT_POOLED" "$SLOT_DIRECT"
+t_false "env: an empty pooled is not"         slot_db_pair_ok "" "$SLOT_DIRECT"
+t_false "env: an empty direct is not"         slot_db_pair_ok "$SLOT_POOLED" ""
+t_false "env: a swapped pair is not"          slot_db_pair_ok "$SLOT_DIRECT" "$SLOT_POOLED"
+t_false "env: two pooled hosts are not"       slot_db_pair_ok "$SLOT_POOLED" "$SLOT_POOLED"
+t_false "env: two endpoints are not one slot" slot_db_pair_ok "$SLOT_POOLED" "$SHARED_DIRECT"
+t_false "env: an http url is not a database"  slot_db_pair_ok "https://ep-x-pooler.h/db" "https://ep-x.h/db"
+
+# rendering: the shared value never survives, in either outcome
+SHARED_ENV="$(printf '# comment\nDATABASE_URL="%s"\nDATABASE_URL_UNPOOLED="%s"\nANTHROPIC_API_KEY="sk-ant-shared"\nexport DATABASE_URL="%s"\n' \
+  "$SHARED_POOLED" "$SHARED_DIRECT" "$SHARED_POOLED")"
+RENDERED="$(printf '%s\n' "$SHARED_ENV" | slot_env_render 'agent/probe' "$SLOT_POOLED" "$SLOT_DIRECT")"
+t_lacks "env: shared pooled url is stripped"  "ep-main-01-pooler" "$RENDERED"
+t_lacks "env: shared direct url is stripped"  "ep-main-01."       "$RENDERED"
+t_has   "env: slot pooled url is written"     "ep-slot-07-pooler" "$RENDERED"
+t_has   "env: slot direct url is written"     "ep-slot-07."       "$RENDERED"
+t_has   "env: non-database secrets are kept"  "sk-ant-shared"     "$RENDERED"
+t_eq    "env: exactly two DATABASE_URL lines" "2" "$(printf '%s\n' "$RENDERED" | grep -cE '^[[:space:]]*(export[[:space:]]+)?DATABASE_URL(_UNPOOLED)?=')"
+
+UNPROVISIONED="$(printf '%s\n' "$SHARED_ENV" | slot_env_render 'agent/probe' '' '')"
+t_eq  "env: no pair means no assignment"    "0" "$(printf '%s\n' "$UNPROVISIONED" | grep -cE '^[[:space:]]*(export[[:space:]]+)?DATABASE_URL(_UNPOOLED)?=')"
+t_lacks "env: and no inherited shared value" "ep-main-01" "$UNPROVISIONED"
+t_has "env: absence is explained, not silent" "deliberately ABSENT" "$UNPROVISIONED"
+SWAPPED="$(printf '%s\n' "$SHARED_ENV" | slot_env_render 'agent/probe' "$SLOT_DIRECT" "$SLOT_POOLED")"
+t_eq  "env: a swapped pair is not written"  "0" "$(printf '%s\n' "$SWAPPED" | grep -cE '^[[:space:]]*(export[[:space:]]+)?DATABASE_URL(_UNPOOLED)?=')"
+t_lacks "env: .env.local keeps no database" "ep-slot-07" "$(printf '%s\n' "$SHARED_ENV" | slot_env_render_stripped 'agent/probe')"
+
+# provisioning end to end, against a fake neonctl and a throwaway tree
+SLOT_TMP="$(mktemp -d "${TMPDIR:-/tmp}/e015.XXXXXX")"
+mkdir -p "$SLOT_TMP/main" "$SLOT_TMP/slot" "$SLOT_TMP/bin"
+printf '%s\n' "$SHARED_ENV" > "$SLOT_TMP/main/.env"
+ln -s "$SLOT_TMP/main/.env" "$SLOT_TMP/slot/.env"   # the symlink this epic removes
+cat > "$SLOT_TMP/bin/neonctl" <<'FAKE'
+#!/usr/bin/env bash
+# Fake neonctl. Offline by construction: the battery never reaches Neon.
+[[ "${1:-} ${2:-}" == "branches create" ]] && exit 0
+if [[ "${1:-}" == "connection-string" ]]; then
+  case " $* " in
+    *" --pooled "*) echo 'postgresql://neondb_owner:slotpw@ep-slot-07-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require' ;;
+    *)              echo 'postgresql://neondb_owner:slotpw@ep-slot-07.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require' ;;
+  esac
+  exit 0
+fi
+exit 1
+FAKE
+cat > "$SLOT_TMP/bin/neonctl-broken" <<'FAKE'
+#!/usr/bin/env bash
+exit 1
+FAKE
+chmod +x "$SLOT_TMP/bin/neonctl" "$SLOT_TMP/bin/neonctl-broken"
+
+NOTE="$(SLOT_ENV_NEONCTL="$SLOT_TMP/bin/neonctl" slot_env_provision "$SLOT_TMP/main" "$SLOT_TMP/slot" 'agent/probe')"
+t_false "env: the slot .env is not a symlink"  test -L "$SLOT_TMP/slot/.env"
+t_true  "env: the slot .env is a real file"    test -f "$SLOT_TMP/slot/.env"
+t_has   "env: it names the slot endpoint"      "ep-slot-07-pooler" "$(cat "$SLOT_TMP/slot/.env")"
+t_lacks "env: it does not name the shared one" "ep-main-01"        "$(cat "$SLOT_TMP/slot/.env")"
+t_eq    "env: and the main tree .env is intact" "$SHARED_ENV" "$(cat "$SLOT_TMP/main/.env")"
+mode_of() { stat -f '%OLp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null; }
+t_eq    "env: mode 600 — it holds a password"  "600" "$(mode_of "$SLOT_TMP/slot/.env")"
+t_has   "env: the note names the host"         "ep-slot-07-pooler" "$NOTE"
+t_lacks "env: the note carries no password"    "slotpw"            "$NOTE"
+
+ln -sf "$SLOT_TMP/main/.env" "$SLOT_TMP/slot/.env"
+NOTE_BROKEN="$(SLOT_ENV_NEONCTL="$SLOT_TMP/bin/neonctl-broken" slot_env_provision "$SLOT_TMP/main" "$SLOT_TMP/slot" 'agent/probe')"
+t_false "env: a failing neonctl still unlinks" test -L "$SLOT_TMP/slot/.env"
+t_eq    "env: and leaves no DATABASE_URL"      "0" "$(grep -cE '^[[:space:]]*(export[[:space:]]+)?DATABASE_URL(_UNPOOLED)?=' "$SLOT_TMP/slot/.env")"
+t_lacks "env: nor the shared value"            "ep-main-01" "$(cat "$SLOT_TMP/slot/.env")"
+t_has   "env: the note says so out loud"       "NOT provisioned" "$NOTE_BROKEN"
+
+ln -sf "$SLOT_TMP/main/.env" "$SLOT_TMP/slot/.env"
+SLOT_ENV_NEONCTL="$SLOT_TMP/bin/no-such-neonctl" slot_env_provision "$SLOT_TMP/main" "$SLOT_TMP/slot" 'agent/probe' >/dev/null
+t_false "env: an absent neonctl still unlinks" test -L "$SLOT_TMP/slot/.env"
+t_eq    "env: and leaves no DATABASE_URL"      "0" "$(grep -cE '^[[:space:]]*(export[[:space:]]+)?DATABASE_URL(_UNPOOLED)?=' "$SLOT_TMP/slot/.env")"
+
+printf 'SITE_URL="https://local"\nDATABASE_URL="%s"\n' "$SHARED_POOLED" > "$SLOT_TMP/main/.env.local"
+SLOT_ENV_NEONCTL="$SLOT_TMP/bin/neonctl" slot_env_provision "$SLOT_TMP/main" "$SLOT_TMP/slot" 'agent/probe' >/dev/null
+t_true  "env: .env.local is provisioned too"   test -f "$SLOT_TMP/slot/.env.local"
+t_has   "env: .env.local keeps its own vars"   "https://local" "$(cat "$SLOT_TMP/slot/.env.local")"
+t_lacks "env: .env.local cannot override .env" "ep-main-01" "$(cat "$SLOT_TMP/slot/.env.local")"
+rm -rf "$SLOT_TMP"
+
+# The connection string is a secret, and `git worktree remove` is what deletes it. Both halves
+# of that depend on the slot .env being ignored: an ignored file does not block the removal
+# (measured — an untracked one does), and it cannot be committed by a stray `git add`.
+t_true "env: a slot .env is gitignored"        git -C "$ROOT" check-ignore -q ".claude/worktrees/probe-slug/.env"
+t_true "env: so is a slot .env.local"          git -C "$ROOT" check-ignore -q ".claude/worktrees/probe-slug/.env.local"
 
 # ── post-git-cleanup ────────────────────────────────────────────────────────────
 C=post-git-cleanup.sh

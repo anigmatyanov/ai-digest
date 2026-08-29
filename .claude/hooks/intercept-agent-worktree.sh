@@ -20,6 +20,9 @@
 #   * It does not provision a Neon branch when `neonctl` is absent or unauthenticated; it
 #     warns and leaves DATABASE_URL unset for the slot. A wrong DATABASE_URL is worse than
 #     a missing one — the epic's verification will say so loudly.
+#   * It isolates the DATABASE per slot, not the whole environment. ANTHROPIC_API_KEY and
+#     the Telegram tokens are copied from the main tree's .env unchanged, on purpose: those
+#     are about access, not isolation. See .claude/hooks/_slot-env.sh.
 #   * It does not detect an `Agent` call whose description is empty AND whose prompt is
 #     empty; that gets a hash-based slug and works, but the branch name is meaningless.
 #   * It cannot tell a genuinely new task from a resumed one beyond branch-name identity.
@@ -35,6 +38,8 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=_toolchain.sh
 source "$(dirname "${BASH_SOURCE[0]}")/_toolchain.sh"
+# shellcheck source=_slot-env.sh
+source "$(dirname "${BASH_SOURCE[0]}")/_slot-env.sh"
 
 WT_DIR="$REPO_ROOT/.claude/worktrees"
 SLOT_DIR="$WT_DIR/.slots"
@@ -137,16 +142,12 @@ web_port=$((3100 + slot))
 ( cd "$path" && pnpm install --silent >/dev/null 2>&1 ) || \
   warn "[intercept-agent-worktree] pnpm install did not complete in $path — the agent must run it."
 
-for f in .env .env.local; do
-  [[ -f "$REPO_ROOT/$f" && ! -e "$path/$f" ]] && ln -s "$REPO_ROOT/$f" "$path/$f" 2>/dev/null
-done
-
-db_note="DATABASE_URL is NOT provisioned for this slot — do not run migrations against the shared database."
-if command -v neonctl >/dev/null 2>&1; then
-  if neonctl branches create --name "$branch" >/dev/null 2>&1; then
-    db_note="A Neon branch '$branch' was created for this slot; read its connection string with: neonctl connection-string '$branch'"
-  fi
-fi
+# The slot's .env is a generated COPY, never a symlink. `ln -s` here meant every agent's
+# DATABASE_URL resolved to the main tree's database while the Neon branch created for the
+# slot went unused — measured 2026-08-29, see docs/epics/E-015. All of the decision-making
+# lives in _slot-env.sh so the battery can exercise it; the note that comes back names the
+# branch and the host and never the connection string.
+db_note="$(slot_env_provision "$REPO_ROOT" "$path" "$branch")"
 
 # ── one-shot deny with retry instructions ───────────────────────────────────────
 reason="A worktree has been auto-provisioned for this sub-agent task:
