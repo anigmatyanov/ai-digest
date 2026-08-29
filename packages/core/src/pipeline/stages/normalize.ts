@@ -24,18 +24,26 @@ const NOISE_PARAMS = [
 ];
 
 /**
- * Canonical form of a URL.
+ * Canonical form of a URL, or null when it is not an absolute URL at all.
  *
- * Without this, the same article shared with two different `?utm_source=` values is two
- * candidates, and the digest prints it twice — the most visible kind of quality failure.
+ * Without canonicalisation the same article shared with two different `?utm_source=`
+ * values is two candidates and the digest prints it twice.
+ *
+ * Returning NULL rather than the input is the other half, and it is the half that was
+ * wrong: the previous version swallowed the parse failure and handed the raw string on,
+ * so a relative href travelled through normalize and prefilter and detonated in extract
+ * with a bare TypeError — after the model call for that candidate had been billed, and
+ * two stages past ingest's per-source isolation. A boundary that cannot say "no" is not
+ * a boundary.
  */
-export function canonicaliseUrl(raw: string): string {
+export function canonicaliseUrl(raw: string): string | null {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    return raw.trim();
+    return null;
   }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
   url.hash = "";
   url.protocol = url.protocol === "http:" ? "https:" : url.protocol;
   url.hostname = url.hostname.toLowerCase().replace(/^www\./, "");
@@ -78,6 +86,15 @@ export const normalizeStage = defineStage<RawItem[], Candidate[]>({
 
     for (const item of items) {
       const canonicalUrl = canonicaliseUrl(item.url);
+      if (canonicalUrl === null) {
+        // The source's problem, not a reason to lose the run. Named so it is diagnosable:
+        // a silently shorter funnel is how a broken source hides.
+        ctx.log.warn(
+          `normalize: ${item.sourceKey} yielded an item whose URL is not absolute — dropped`,
+          { externalId: item.externalId, url: item.url },
+        );
+        continue;
+      }
       const canonicalUrlHash = sha256(canonicalUrl);
       const text = item.body ? htmlToText(item.body) : "";
 

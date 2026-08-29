@@ -10,6 +10,7 @@
 import {
   assertPlausibleYield,
   defineStage,
+  RawItemDraftSchema,
   SourceUnavailableError,
   type HttpClient,
   type RawItem,
@@ -73,10 +74,23 @@ export function makeIngestStage(sources: SourceConfig[], options: IngestOptions)
 
           for await (const page of iterable as AsyncIterable<{ items: unknown[] }>) {
             for (const draft of page.items) {
-              const d = draft as { externalId: string } & Record<string, unknown>;
+              // The boundary where a source's data becomes ours, and therefore the place
+              // CLAUDE.md's "zod at the boundary" rule has to be executed rather than
+              // merely stated. It used to be a spread, so RawItemDraftSchema — including
+              // its `url()` — never ran, and a malformed item reached later stages.
+              const parsed = RawItemDraftSchema.safeParse(draft);
+              if (!parsed.success) {
+                const issue = parsed.error.issues[0];
+                ctx.log.warn(
+                  `${source.key}: item rejected at the boundary — ` +
+                    `${issue?.path.join(".") || "<root>"}: ${issue?.message ?? "invalid"}`,
+                  { item: draft },
+                );
+                continue;
+              }
               items.push({
-                ...(d as unknown as Omit<RawItem, "id" | "sourceKey" | "fetchedAt">),
-                id: `raw-${source.key}-${d.externalId}`,
+                ...parsed.data,
+                id: `raw-${source.key}-${parsed.data.externalId}`,
                 sourceKey: source.key,
                 fetchedAt: ctx.now.toISOString(),
               });

@@ -104,4 +104,19 @@ describe("rss connector", () => {
       assertPlausibleYield("rss:simonwillison", 1, rssConnector.policy);
     }).not.toThrow();
   });
+
+  it("should resolve a relative href against the feed URL", async () => {
+    // A relative href is legal Atom under xml:base and is emitted by several static-site
+    // generators. Before this it travelled on as a relative string and detonated two
+    // stages later, in extract, after the model call had been billed.
+    const relative = feed.replace(
+      /<link href="https:\/\/simonwillison\.net(\/[^"]+)"/g,
+      '<link href="$1"',
+    );
+    const [page] = await collect(ctx(relative));
+    expect(page?.items.length).toBeGreaterThan(0);
+    for (const item of page?.items ?? []) {
+      expect(item.url).toMatch(/^https:\/\/simonwillison\.net\//);
+    }
+  });
 });

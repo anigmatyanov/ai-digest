@@ -66,15 +66,29 @@ const text = (v: unknown): string | undefined => {
   return undefined;
 };
 
-/** Atom links are attribute-carrying objects; RSS links are plain text. */
-const linkOf = (raw: unknown): string | undefined => {
+/**
+ * Atom links are attribute-carrying objects; RSS links are plain text.
+ *
+ * The href may be RELATIVE — legal in Atom under xml:base and emitted by several
+ * static-site generators — so it is resolved against the feed's own URL here, at the only
+ * point that knows what it is relative to. Passing it on unresolved is what let a
+ * relative link reach a stage that assumed absolute.
+ */
+const linkOf = (raw: unknown, base: string): string | undefined => {
+  const resolve = (href: string): string | undefined => {
+    try {
+      return new URL(href, base).toString();
+    } catch {
+      return undefined;
+    }
+  };
   const direct = text(raw);
-  if (direct) return direct;
+  if (direct) return resolve(direct);
   for (const l of asArray(raw as Record<string, unknown>[])) {
     const rel = l["@_rel"];
     if (rel === undefined || rel === "alternate") {
       const href = l["@_href"];
-      if (typeof href === "string") return href;
+      if (typeof href === "string") return resolve(href);
     }
   }
   return undefined;
@@ -129,7 +143,7 @@ export const rssConnector = defineConnector<RssConfig, RssCursor>({
 
     const items: RawItemDraft[] = [];
     for (const e of rawEntries) {
-      const url = linkOf(e["link"]);
+      const url = linkOf(e["link"], ctx.config.feedUrl);
       const entry = parseOrDrift(
         FeedEntrySchema,
         {
