@@ -2,6 +2,17 @@ packages:
   - "apps/*"
   - "packages/*"
   - "profiles"
+# Build scripts are declined deliberately, not left undecided — an undecided entry makes
+# `pnpm install` exit 1, and pnpm runs an install check before every script, so the whole
+# toolchain stops. Evidence for each: the Prisma 7 CLI reports "Query Compiler: enabled" and
+# both `prisma validate` and `prisma generate` work with these unrun, because v7 compiles
+# queries in WASM instead of shipping a native engine binary. esbuild's platform binary comes
+# from its optional @esbuild/darwin-arm64 package, not from its postinstall; the test suite
+# has been running with this script unrun since bootstrap.
+allowBuilds:
+  "@prisma/engines": false
+  prisma: false
+  esbuild: false
 minimumReleaseAgeExclude:
   - "@typescript-eslint/eslint-plugin@8.68.0"
   - "@typescript-eslint/parser@8.68.0"

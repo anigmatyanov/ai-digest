@@ -36,3 +36,8 @@ coverage/
 
 # Pipeline run artefacts are reproducible output, not source. `runs/` was already
 # ignored; this keeps the intent visible next to it.
+
+# Prisma client, regenerated from prisma/schema.prisma by the root postinstall hook.
+# Committed generated code turns every schema change into a thousand-line diff, and it
+# goes stale the moment someone edits the schema without running the generator.
+packages/db/src/generated/
