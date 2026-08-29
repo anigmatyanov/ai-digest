@@ -69,7 +69,7 @@ cmd="$(printf '%s' "$payload" | jq -r '.tool_input.command // ""' 2>/dev/null)"
 # an effect. `packages/telegram`, a variable called publish, a file named vercel.json —
 # all inert. What is dangerous is a verb applied to them.
 if ! printf '%s\n' "$cmd" | grep -qiE \
-  'digest:run|digest-run|pipeline[[:space:]]+(run|publish)|--publish|--no-dry-run|--live|api\.telegram\.org|sendMessage|(^|[[:space:];&|])(npx[[:space:]]+)?vercel([[:space:]]|$)|--prod|gh[[:space:]]+(workflow[[:space:]]+run|release[[:space:]]+create|api)|neonctl|prisma[[:space:]]+(migrate|db[[:space:]]+push)|/api/revalidate|(^|[;&|][[:space:]]*)(node|npx|bun|deno|bash|sh|\./)[[:space:]]*[^[:space:]]*publish'; then
+  'digest:run|digest-run|pipeline[[:space:]]+(run|publish)|--publish|--no-dry-run|--live|api\.telegram\.org|sendMessage|(^|[[:space:];&|])(npx[[:space:]]+)?vercel([[:space:]]|$)|--prod|gh[[:space:]]+(workflow[[:space:]]+run|release[[:space:]]+create|api|(secret|variable)[[:space:]]+(set|delete))|neonctl|prisma[[:space:]]+(migrate|db[[:space:]]+push)|/api/revalidate|(^|[;&|][[:space:]]*)(node|npx|bun|deno|bash|sh|\./)[[:space:]]*[^[:space:]]*publish'; then
   exit 0
 fi
 
@@ -113,6 +113,20 @@ if printf '%s\n' "$cmd" | grep -qE '(^|[[:space:];&|(]|zsh -lc .|bash -c .)neonc
   fi
 fi
 
+# `gh api` reads. Added 2026-08-29 after the guard blocked a lookup of an action's commit
+# SHA while writing CI — a pure GET against a public repository. `gh api` is in the danger
+# list because it CAN mutate, but it mutates only when told to: a method flag, or a field
+# flag (-f/-F/--field/--raw-field/--input), which makes gh switch to POST on its own. With
+# none of those present the call is a GET, and refusing GETs is how the rail gets disabled.
+# The read verbs of the porcelain commands ride along for the same reason.
+if printf '%s\n' "$cmd" | grep -qE '(^|[[:space:];&|(])gh[[:space:]]+(api[[:space:]]|(pr|run|repo|workflow|secret|release|issue|cache)[[:space:]]+(list|view|status|diff)([[:space:]]|$))'; then
+  # A mutating shape anywhere in the command disqualifies the whole thing — the carve-out
+  # must not become a prefix that smuggles an effect in behind a harmless read.
+  if ! printf '%s\n' "$cmd" | grep -qE '(-X|--method)[[:space:]]*(POST|PUT|PATCH|DELETE)|[[:space:]](-f|-F|--field|--raw-field|--input)[[:space:]]|gh[[:space:]]+[a-z-]+[[:space:]]+(run|create|delete|set|merge|edit|close|upload|sync)([[:space:]]|$)'; then
+    exit 0
+  fi
+fi
+
 case "$cmd" in
   *"--dry-run"*|*"--fixtures"*)
     # A dry run is the sanctioned path — unless it also carries a publish flag.
@@ -148,6 +162,17 @@ if printf '%s' "$cmd" | grep -qiE 'gh[[:space:]]+workflow[[:space:]]+run|gh[[:sp
   deny "Blocked: triggering a workflow or mutating GitHub state from an agent session.
   command: $cmd
 Report what needs to run and let the owner trigger it."
+fi
+
+# Repository secrets. Found 2026-08-29 by a test written for the `gh api` carve-out: this
+# shape was never in the danger zone at all, so an agent session could have written a
+# production secret and nothing would have objected. The owner runs this one by hand — the
+# value has to come from somewhere, and an agent that can read a key into a command line
+# can also read it into a log.
+if printf '%s' "$cmd" | grep -qiE 'gh[[:space:]]+(secret|variable)[[:space:]]+(set|delete)'; then
+  deny "Blocked: writing a repository secret or variable from an agent session.
+  command: $cmd
+Secrets are set by the owner. Print the exact command to run and stop there — see docs/setup.md."
 fi
 
 if printf '%s' "$cmd" | grep -qiE 'prisma[[:space:]]+(migrate[[:space:]]+(deploy|reset)|db[[:space:]]+push)'; then

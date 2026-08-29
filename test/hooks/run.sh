@@ -45,6 +45,16 @@ expect 2 "block: neonctl branches delete"    $G "$(cjson 'neonctl branches delet
 # during Neon setup: a false block on an inspection command is how a rail gets switched off
 # for good. NOTE: this file cannot be written by a shell heredoc — the guard judges the whole
 # command text, and the delete cases above appear inside it. Use a file-writing tool.
+# `gh api` GETs pass, anything that makes gh switch to POST does not. Added 2026-08-29
+# after the guard blocked a lookup of an action's commit SHA while CI was being written.
+expect 0 "gh api: plain GET"                   $G "$(cjson 'gh api repos/actions/checkout/git/ref/tags/v5 --jq .object.sha')"
+expect 0 "gh api: compound GET loop"           $G "$(cjson 'for r in a b; do gh api repos/$r --jq .id; done')"
+expect 0 "gh: pr list is a read"               $G "$(cjson 'gh pr list --state open')"
+expect 0 "gh: run view is a read"              $G "$(cjson 'gh run view 12345 --log-failed')"
+expect 2 "gh api: -X POST is not a read"       $G "$(cjson 'gh api repos/x/y/issues -X POST')"
+expect 2 "gh api: -f implies POST"             $G "$(cjson 'gh api repos/x/y/issues -f title=bug')"
+expect 2 "gh: read prefixed onto an effect"    $G "$(cjson 'gh pr list && gh workflow run digest.yml')"
+expect 2 "gh: secret set is not a read"        $G "$(cjson 'gh secret set ANTHROPIC_API_KEY --body xxx')"
 # Naming a subject is not performing an action. Every one of these was a real false block
 # during E-001 setup: the guard keyed on bare `telegram`, `publish` and `vercel`, so a
 # package name, a grep and a filename all landed in the danger zone and failed closed.

@@ -1,0 +1,52 @@
+# The gate CLAUDE.md promises: `pnpm verify` on every PR.
+#
+# Two things this deliberately does NOT do:
+#   * It has no secrets. Tests are forbidden from touching the network (test/setup/no-network.ts
+#     fails naming the URL), the golden run reads recorded fixtures, and the profile validator
+#     is offline. A job with no secrets cannot publish, deploy or touch a database by accident,
+#     which makes this the cheapest possible enforcement of "nothing is published outside the
+#     scheduled pipeline".
+#   * It does not run `prettier --check`. 18 files are unformatted today; a gate that is red
+#     on arrival gets ignored or disabled. It goes in once the tree is clean, as its own change.
+#
+# Minutes matter: a private repository has 2000/month and the pipeline workflows will claim
+# ~750 of them. Hence `concurrency` cancelling superseded pushes and a hard timeout — a hung
+# job is otherwise billed for its full six hours.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # typecheck + lint + test + hook battery + connector registry + profiles + epic queue
+      - run: pnpm verify
+
+      # An exit code is not a build. Measured on this repository 2026-08-25: with the
+      # *.tsbuildinfo intact and dist/ gone, `tsc -b` reports success and emits nothing.
+      - run: pnpm build:proof
+
+      # Structural assertions on a rendered issue, offline, from recorded fixtures. This is
+      # what stops a prompt or stage change from quietly producing an issue with no evidence.
+      - run: pnpm golden
