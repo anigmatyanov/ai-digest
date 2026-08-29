@@ -8,9 +8,11 @@
 // is called with `source.kind`, and the two are allowed to differ.
 
 import type { AnyConnector } from "@ai-digest/core";
+import { hnConnector } from "./hn/index.js";
 import { rssConnector } from "./rss/index.js";
 
 export const connectors = {
+  "hn": hnConnector as unknown as AnyConnector,
   "rss": rssConnector as unknown as AnyConnector,
 } as const;
 
@@ -25,6 +27,7 @@ export type ConnectorKind = keyof typeof connectors;
  * profiles are TypeScript rather than YAML would be gone with no compile error to say so.
  */
 export const sourceVariants = [
+  { kind: "hn", config: hnConnector.configSchema },
   { kind: "rss", config: rssConnector.configSchema },
 ] as const;
 
