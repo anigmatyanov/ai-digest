@@ -2,6 +2,10 @@ packages:
   - "apps/*"
   - "packages/*"
   - "profiles"
+allowBuilds:
+  '@prisma/engines': set this to true or false
+  esbuild: set this to true or false
+  prisma: set this to true or false
 minimumReleaseAgeExclude:
   - "@typescript-eslint/eslint-plugin@8.68.0"
   - "@typescript-eslint/parser@8.68.0"
