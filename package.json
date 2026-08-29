@@ -15,7 +15,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run",
+    "test": "pnpm typecheck && vitest run",
     "test:watch": "vitest",
     "build": "tsc -b --pretty",
     "rebuild": "pnpm clean && pnpm build",
