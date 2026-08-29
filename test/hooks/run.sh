@@ -143,6 +143,15 @@ expect 0 "sub-agent in its own worktree"      $E "$(fj "$MINE/src/x.ts")" "$MINE
 expect 0 "scratch: /tmp passes"               $E "$(fj "/tmp/scratch.txt")" "$MINE"
 expect 0 "scratch: /private/tmp passes"       $E "$(fj "/private/tmp/claude-501/s/note.md")" "$MINE"
 expect 0 "scratch: /dev/null passes"          $E "$(fj "/dev/null")" "$MINE"
+# is_scratch moved into _paths.sh (E-005) and grew the /dev entries the Bash rail needs.
+# That is an observable change to THIS hook too, so it is pinned here and not only in the
+# Bash block: /dev/tty and /dev/fd/3 were denied by this hook before the shared library.
+expect 0 "scratch: /dev/tty passes (shared)"  $E "$(fj "/dev/tty")" "$MINE"
+expect 0 "scratch: /dev/fd/3 passes (shared)" $E "$(fj "/dev/fd/3")" "$MINE"
+# The deny message names the session scratchpad as an acceptable place and this hook used
+# to refuse it. Found by replaying the session log through the Bash rail; fixed for both.
+expect 0 "scratch: the session job tmp dir"  $E "$(fj "$HOME/.claude/jobs/09f37764/tmp/c5.mjs")" "$MINE"
+expect 2 "block: job state.json is not tmp"  $E "$(fj "$HOME/.claude/jobs/09f37764/state.json")" "$MINE"
 expect 2 "block: sub-agent into main tree"    $E "$(fj "$ROOT/packages/core/src/x.ts")" "$MINE"
 expect 2 "block: sub-agent into other tree"   $E "$(fj "$ROOT/.claude/worktrees/_probe_other/x.ts")" "$MINE"
 expect 2 "block: .. traversal out"            $E "$(fj "$MINE/../../../CLAUDE.md")" "$MINE"
@@ -156,6 +165,139 @@ expect 2 "block: a system path"               $E "$(fj "/etc/hosts")" "$MINE"
 expect 2 "block: .. traversal to a sibling"   $E "$(fj "$MINE/../../../../sibling/x.ts")" "$MINE"
 expect 2 "block: the repo's parent directory" $E "$(fj "$(dirname "$ROOT")/x.ts")" "$MINE"
 rmdir "$ROOT/.claude/worktrees/_probe_mine" "$ROOT/.claude/worktrees/_probe_other" 2>/dev/null
+
+# ── bash-write-path-guard ───────────────────────────────────────────────────────
+#
+# E-005. The failure mode this block guards against is NOT a missed write — it is a FALSE
+# BLOCK. Writing through the shell appears in every second command in this project (`>`,
+# `>>`, `tee`, `sed -i`, `cp`, `mv`), and a naive matcher on `>` fails `2>&1` — measured at
+# 313 of the 6062 commands in this project's session log, one command in twenty. A rail
+# that refuses `grep x > /dev/null` gets switched off within the hour, and then the write
+# it was meant to stop goes through as well. So the green cases below outnumber the red
+# ones on purpose: each one is a form that LOOKS like a write and is not.
+#
+# The 15 `expect 2` cases were shown red on commit A, where the hook was registered and
+# reachable but its body was `exit 0`. Every `expect 0` case was green in that same run —
+# which is the point: a hook that denies nothing and a hook that denies everything both
+# print a number, and only the split between the two halves shows that it DISCRIMINATES.
+W=bash-write-path-guard.sh
+mkdir -p "$ROOT/.claude/worktrees/_probe_mine"
+MINE="$ROOT/.claude/worktrees/_probe_mine"
+bj() { printf '{"agent_id":"a1","tool_input":{"command":%s}}' "$(jq -Rn --arg c "$1" '$c')"; }
+
+# ── writes that land outside the repository (the 15) ──
+expect 2 "w: sed -i into a sibling project"   $W "$(bj "sed -i '' 's/x/y/' \$HOME/other-project/file.ts")" "$MINE"
+expect 2 "w: redirect into HOME"              $W "$(bj "echo test > \$HOME/notes.txt")" "$MINE"
+expect 2 "w: append into quoted HOME"         $W "$(bj "echo test >> \"\$HOME/notes.txt\"")" "$MINE"
+expect 2 "w: redirect into ~"                 $W "$(bj 'echo test > ~/notes.txt')" "$MINE"
+expect 2 "w: tee after a pipe"                $W "$(bj "printf x | tee \$HOME/other/x.log")" "$MINE"
+expect 2 "w: cp destination outside"          $W "$(bj "cp fixtures/a.json \$HOME/other-project/a.json")" "$MINE"
+expect 2 "w: mv destination outside"          $W "$(bj 'mv dist/x.js ~/Desktop/x.js')" "$MINE"
+expect 2 "w: install with a flag argument"    $W "$(bj "install -m 644 x \$HOME/bin/x")" "$MINE"
+expect 2 "w: redirect into a system path"     $W "$(bj 'echo x > /etc/hosts')" "$MINE"
+expect 2 "w: .. traversal out of the repo"    $W "$(bj 'echo x > ../../../../sibling/x.ts')" "$MINE"
+expect 2 "w: mkdir -p outside"                $W "$(bj "mkdir -p \$HOME/other/newdir")" "$MINE"
+expect 2 "w: dd of= outside"                  $W "$(bj "dd if=/dev/zero of=\$HOME/other/blob")" "$MINE"
+expect 2 "w: cd out, then a relative write"   $W "$(bj "cd \$HOME/other && echo x > y.txt")" "$MINE"
+expect 2 "w: redirect with 2>&1 alongside"    $W "$(bj "pnpm test > \$HOME/log.txt 2>&1")" "$MINE"
+expect 2 "w: ln linkname outside"             $W "$(bj "ln -s /etc/passwd \$HOME/link")" "$MINE"
+# The 16th, and NOT part of the commit-A transcript: found by an adversarial sweep after the
+# implementation was already green. `cd ~` carries no `~/` and no token-initial slash, so the
+# phase-1 test waved the whole command through before the lexer ever saw it. Red on the
+# phase-1 regex as it stood at commit B's first draft; the fix is in that regex.
+expect 2 "w: bare ~ in cd, then a write"      $W "$(bj 'cd ~ && echo x > n.txt')" "$MINE"
+# 17th, also post-commit-A and also from the sweep: pushd moves the base exactly as cd does
+# and was not tracked, so this was a miss. popd and a bare/rotating pushd must not be guessed.
+expect 2 "w: pushd moves the base too"        $W "$(bj 'pushd ~ > /dev/null && echo x > n.txt')" "$MINE"
+
+# ── scratch: outside the repository and harmless ──
+expect 0 "s: /tmp"                            $W "$(bj 'echo test > /tmp/scratch.txt')" "$MINE"
+expect 0 "s: TMPDIR"                          $W "$(bj "echo test > \"\$TMPDIR/probe.txt\"")" "$MINE"
+expect 0 "s: /private/tmp"                    $W "$(bj 'echo test > /private/tmp/probe.txt')" "$MINE"
+expect 0 "s: /dev/null"                       $W "$(bj 'pnpm verify > /dev/null 2>&1')" "$MINE"
+expect 0 "s: 2>/dev/null"                     $W "$(bj 'ls /nope 2>/dev/null')" "$MINE"
+expect 0 "s: &>/dev/null"                     $W "$(bj 'ls /nope &>/dev/null')" "$MINE"
+expect 0 "s: &>> into /tmp"                   $W "$(bj 'ls /nope &>> /tmp/log.txt')" "$MINE"
+expect 0 "s: <> read-write on a lock file"    $W "$(bj 'exec 3<> /tmp/lock')" "$MINE"
+# The one denial the session-log replay produced that was not a write into another tree.
+expect 0 "s: the session scratchpad"          $W "$(bj "cat > $HOME/.claude/jobs/09f37764/tmp/c5.mjs")" "$MINE"
+# The dominant backup pattern in this project's log: copy out to /tmp, edit, copy back.
+expect 0 "s: backup out to /tmp"              $W "$(bj 'cp packages/core/src/x.ts /tmp/g.bak')" "$MINE"
+expect 0 "s: restore from /tmp"               $W "$(bj 'cp /tmp/g.bak packages/core/src/x.ts')" "$MINE"
+
+# ── file-descriptor duplication is not a redirect. 313 commands in the log carry `2>&1` ──
+expect 0 "fd: 1>&2"                           $W "$(bj 'echo /etc/x 1>&2')" "$MINE"
+expect 0 "fd: >&2"                            $W "$(bj 'echo /etc/x >&2')" "$MINE"
+expect 0 "fd: >&- closes a descriptor"        $W "$(bj 'echo /etc/x >&-')" "$MINE"
+expect 0 "fd: 0<&3"                           $W "$(bj 'cat /etc/hosts 0<&3')" "$MINE"
+
+# ── pipes and reads ──
+expect 0 "r: a pipe is not a redirect"        $W "$(bj 'cat /etc/hosts | wc -l')" "$MINE"
+expect 0 "r: |& is not a redirect"            $W "$(bj 'cat /etc/hosts |& wc -l')" "$MINE"
+expect 0 "r: < reads"                         $W "$(bj 'cat < /etc/hosts')" "$MINE"
+expect 0 "r: <<< is a here-string"            $W "$(bj 'grep x <<< "/etc/passwd"')" "$MINE"
+expect 0 "r: reading a sibling project"       $W "$(bj "cat \$HOME/other/README.md")" "$MINE"
+expect 0 "r: ls outside"                      $W "$(bj 'ls ~/Desktop')" "$MINE"
+expect 0 "r: cp FROM outside, INTO the repo"  $W "$(bj "cp \$HOME/other/x .")" "$MINE"
+
+# ── `>` that is not a redirect: quotes, comparison operators, JS arrows ──
+expect 0 "q: > inside double quotes"          $W "$(bj 'echo "write it with tee > /etc/x"')" "$MINE"
+expect 0 "q: > inside a commit message"       $W "$(bj 'git commit -m "guard /etc/hosts > out"')" "$MINE"
+expect 0 "q: grep for a write form"           $W "$(bj "grep -rn 'sed -i' .claude/hooks/")" "$MINE"
+expect 0 "q: [[ ]] comparison"                $W "$(bj '[[ "$a" > "$b" ]]')" "$MINE"
+expect 0 "q: [[ ]] comparison, path in test"  $W "$(bj '[[ -f /etc/hosts && "$a" > "$b" ]]')" "$MINE"
+expect 0 "q: (( )) arithmetic"                $W "$(bj '(( 5 > 3 )) && echo /etc/ok')" "$MINE"
+expect 0 "q: awk field comparison"            $W "$(bj "awk '\$1 > 3' /etc/passwd")" "$MINE"
+expect 0 "q: find -newer"                     $W "$(bj 'find . -newer /etc/hosts')" "$MINE"
+expect 0 "q: sed with a | separator"          $W "$(bj "sed -i '' 's|/etc/x|y|' packages/core/src/x.ts")" "$MINE"
+# 157 commands in the log carry `=>`. A lexer that does not drop the heredoc body reads the
+# `>` of a fat arrow as a redirect, and `/^[A-Z_]+=/` as an absolute path outside the repo.
+expect 0 "q: JS arrow inside -e"              $W "$(bj "node -e 'const a = l.filter((c) => /^[A-Z_]+=/.test(c)); console.log(a)'")" "$MINE"
+HD=$'cat <<EOF\n$HOME/other/f > $HOME/other/g\nEOF'
+expect 0 "q: heredoc body is data"            $W "$(bj "$HD")" "$MINE"
+HV=$'x=$(cat <<EOF\n$HOME/other/f\nEOF\n)'
+expect 0 "q: heredoc into a variable"         $W "$(bj "$HV")" "$MINE"
+expect 0 "q: process substitution"            $W "$(bj 'diff <(cat /etc/hosts) <(cat /etc/services)')" "$MINE"
+expect 0 "q: >(...) is not a redirect"        $W "$(bj 'cat /etc/hosts | tee >(wc -l) > /dev/null')" "$MINE"
+expect 0 "q: a comment mentioning a path"     $W "$(bj 'ls /etc # writes to $HOME/x, allegedly')" "$MINE"
+
+# ── inside the repository ──
+expect 0 "i: relative write in the worktree"  $W "$(bj 'echo x > src/generated.ts')" "$MINE"
+expect 0 "i: sed -i on a relative path"       $W "$(bj "sed -i '' 's/x/y/' packages/core/src/x.ts")" "$MINE"
+expect 0 "i: mkdir inside the worktree"       $W "$(bj 'mkdir -p packages/core/src/sub')" "$MINE"
+expect 0 "i: >| clobber, relative"            $W "$(bj 'echo x >| out.txt')" "$MINE"
+expect 0 "i: cd inside, then write"           $W "$(bj 'cd packages/core && echo x > src/y.ts')" "$MINE"
+expect 0 "i: pushd inside, then write"        $W "$(bj 'pushd packages/core && echo x > src/y.ts')" "$MINE"
+expect 0 "i: popd restores the base"          $W "$(bj 'pushd ~ > /dev/null && popd > /dev/null && echo x > n.txt')" "$MINE"
+expect 0 "i: a rotating pushd is unknown"     $W "$(bj 'pushd > /dev/null && echo x > n.txt')" "$MINE"
+expect 0 "i: cd - is unknown, so it passes"   $W "$(bj 'cd ~ && cd - && echo x > n.txt')" "$MINE"
+# DELIBERATE ASYMMETRY, pinned so nobody later reads "parity with Write" wider than it was
+# built: the Bash rail stops at the REPOSITORY boundary. The file rail also defends the
+# WORKTREE boundary — this same target is `expect 2` in the enforce-subagent-worktree block
+# above. Widening the Bash rail to match is a separate decision, not a bug fix.
+expect 0 "i: into the main tree (asymmetry)"  $W "$(bj "echo x > $ROOT/packages/core/src/x.ts")" "$MINE"
+
+# ── fail-open, by construction and by name (acceptance criterion 4) ──
+# A deny happens at exactly one point: the target RESOLVED to an absolute path that is
+# outside the repository and is not scratch. Every other outcome — an unknown variable, an
+# unparsed form, another layer of execution — is an absent target, i.e. a pass. The cost
+# asymmetry is the reason: live-effects-guard.sh fails CLOSED because its error is a post
+# in a real channel; here it is a file in a neighbouring folder.
+expect 0 "o: unknown variable in the target"  $W "$(bj 'echo x > "$SOME_DIR/out.txt"')" "$MINE"
+expect 0 "o: path through an assignment"      $W "$(bj 't=~/Desktop/x; echo probe > "$t"')" "$MINE"
+expect 0 "o: bash -c hides the redirect"      $W "$(bj "bash -c \"echo x > \$HOME/y\"")" "$MINE"
+expect 0 "o: python3 -c opens the file"       $W "$(bj "python3 -c \"open('\$HOME/x','w')\"")" "$MINE"
+expect 0 "o: curl -o is not in the v1 list"   $W "$(bj "curl -o \$HOME/x https://example.com/f")" "$MINE"
+expect 0 "o: xargs hides the command"         $W "$(bj "xargs -I{} cp {} \$HOME/other/")" "$MINE"
+
+# ── the parent session is out of scope (acceptance criterion 5) ──
+# All three are real commands from this project's session log, run by the owner to install
+# the toolchain. They write outside the repository on purpose, and the agent_id gate — not
+# a path exception — is what lets them through. That gate is load-bearing, not decorative.
+expect 0 "p: mkdir -p ~/.local/bin"           $W "$(cjson 'mkdir -p ~/.local/bin')" "$MINE"
+expect 0 "p: ln -sf into ~/.local/bin"        $W "$(cjson 'ln -sf /opt/homebrew/x ~/.local/bin/pnpm')" "$MINE"
+expect 0 "p: redirect into HOME"              $W "$(cjson "echo test > \$HOME/notes.txt")" "$MINE"
+rmdir "$ROOT/.claude/worktrees/_probe_mine" 2>/dev/null
 
 # ── intercept-agent-worktree (pass-through paths only; provisioning is not unit-testable) ──
 I=intercept-agent-worktree.sh

@@ -83,6 +83,10 @@
           {
             "type": "command",
             "command": "bash .claude/hooks/git-branch-delete-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/bash-write-path-guard.sh"
           }
         ]
       }
