@@ -15,7 +15,7 @@ Guidance for Claude Code working in this repository.
 - `apps/pipeline` — CLI-раннер, точка входа для GitHub Actions.
 - `packages/core` — доменные типы, стадии, автомат состояний, оркестратор. Топик-агностично.
 - `packages/db` — Prisma (Neon Postgres + pgvector), миграции, ретеншн, векторные запросы.
-- `packages/connectors` — плагины источников, директория на источник. `index.ts` **генерируется**.
+- `packages/connectors` — плагины источников, директория на источник. `registry.ts` **генерируется** (`index.ts` написан руками).
 - `packages/llm` — каскад Claude, кэш, бюджет, верификатор доказательств, промпты.
 - `packages/telegram` — Bot API: публикация, вебхук, рендер постов.
 - `profiles/` — TS-профили тем. `fixtures/` — записанные ответы источников. `golden/` — замороженные входы и эталонные выпуски. `costs/` — baseline стоимости.

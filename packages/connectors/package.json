@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Source plugins. One directory per source; index.ts is generated.",
+  "description": "Source plugins. One directory per source; registry.ts is generated.",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
