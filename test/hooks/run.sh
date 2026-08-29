@@ -115,10 +115,21 @@ MINE="$ROOT/.claude/worktrees/_probe_mine"
 fj() { printf '{"agent_id":"a1","tool_input":{"file_path":"%s"}}' "$1"; }
 expect 0 "parent session may write main tree" $E "$(printf '{"tool_input":{"file_path":"%s/packages/core/src/x.ts"}}' "$ROOT")"
 expect 0 "sub-agent in its own worktree"      $E "$(fj "$MINE/src/x.ts")" "$MINE"
-expect 0 "sub-agent writing outside the repo" $E "$(fj "/tmp/scratch.txt")" "$MINE"
+expect 0 "scratch: /tmp passes"               $E "$(fj "/tmp/scratch.txt")" "$MINE"
+expect 0 "scratch: /private/tmp passes"       $E "$(fj "/private/tmp/claude-501/s/note.md")" "$MINE"
+expect 0 "scratch: /dev/null passes"          $E "$(fj "/dev/null")" "$MINE"
 expect 2 "block: sub-agent into main tree"    $E "$(fj "$ROOT/packages/core/src/x.ts")" "$MINE"
 expect 2 "block: sub-agent into other tree"   $E "$(fj "$ROOT/.claude/worktrees/_probe_other/x.ts")" "$MINE"
 expect 2 "block: .. traversal out"            $E "$(fj "$MINE/../../../CLAUDE.md")" "$MINE"
+# Until 2026-08-29 the hook waved through every path outside the repository, so a sub-agent
+# could write into a sibling project on the Desktop or into a dotfile. Measured, not
+# theorised: probe files created in ~/Desktop and in ~/Desktop/_LMS both succeeded.
+# These five were green when they should have been red.
+expect 2 "block: sibling project under HOME"  $E "$(fj "$HOME/some-other-project/src/x.ts")" "$MINE"
+expect 2 "block: a dotfile under HOME"        $E "$(fj "$HOME/.zshrc")" "$MINE"
+expect 2 "block: a system path"               $E "$(fj "/etc/hosts")" "$MINE"
+expect 2 "block: .. traversal to a sibling"   $E "$(fj "$MINE/../../../../sibling/x.ts")" "$MINE"
+expect 2 "block: the repo's parent directory" $E "$(fj "$(dirname "$ROOT")/x.ts")" "$MINE"
 rmdir "$ROOT/.claude/worktrees/_probe_mine" "$ROOT/.claude/worktrees/_probe_other" 2>/dev/null
 
 # ── intercept-agent-worktree (pass-through paths only; provisioning is not unit-testable) ──

@@ -168,9 +168,7 @@ export function validateEpic(epic) {
   const goal = section(body, "Цель").trim();
   if (!goal) problems.push("## Цель is empty");
 
-  const criteria = [
-    ...section(body, "Критерии приёмки").matchAll(/^\s*-\s+\[[ xX]\]\s+(.+)$/gm),
-  ].map((x) => x[1]);
+  const criteria = parseCriteria(section(body, "Критерии приёмки"));
   const isWhenThen = (c) => /КОГДА[\s\S]*ТО\s/u.test(c);
   const whenThen = criteria.filter(isWhenThen);
   if (whenThen.length === 0) {
@@ -357,13 +355,54 @@ function nextId(epics) {
  * The registry in this file and the table in backlog.md are two copies of one fact.
  * This check is why they cannot drift apart silently.
  */
+// A criterion may wrap across lines — «КОГДА …,» on one, «ТО …» on the next is the most
+// natural way to write one, and Prettier will reflow long bullets there anyway. Matching
+// line-by-line kept only the first half, so a well-formed criterion lost its «ТО» and was
+// reported as an implementation step: the gate punishing correct markdown, which teaches
+// authors to shorten criteria until they fit rather than to write better ones. Same class
+// of defect as the frontmatter reflow that emptied E-001's serialize list.
+export function parseCriteria(sectionText) {
+  const out = [];
+  let open = false;
+  for (const line of String(sectionText).split(/\r?\n/)) {
+    const m = /^\s*-\s+\[[ xX]\]\s+(.+)$/.exec(line);
+    if (m) {
+      out.push(m[1].trim());
+      open = true;
+      continue;
+    }
+    if (line.trim() === "" || /^\s*[-*]\s/.test(line) || /^\S/.test(line)) {
+      open = false;
+      continue;
+    }
+    if (open && out.length) out[out.length - 1] += " " + line.trim();
+  }
+  return out;
+}
+
 function selfTest() {
   const doc = readFileSync(join(ROOT, ".claude", "rules", "backlog.md"), "utf8");
   const documented = new Set([...doc.matchAll(/^\|\s*`([a-z-]+)`\s*\|/gm)].map((m) => m[1]));
   const coded = new Set(Object.keys(SERIALIZE_LABELS));
   const missing = [...coded].filter((l) => !documented.has(l));
   const extra = [...documented].filter((l) => !coded.has(l));
-  return { ok: missing.length === 0 && extra.length === 0, missing, extra };
+
+  // The rubric is only as good as its parser. This case was red before 2026-08-29: the
+  // wrapped criterion came back as "КОГДА агент пишет мимо," with the «ТО» half dropped.
+  const parsed = parseCriteria(
+    ["- [ ] КОГДА агент пишет мимо,", "      ТО команда отклоняется.", "- [ ] сделать раннер"].join(
+      "\n",
+    ),
+  );
+  const parserOk =
+    parsed.length === 2 && /ТО\s/u.test(parsed[0]) && !/ТО\s/u.test(parsed[1]);
+
+  return {
+    ok: missing.length === 0 && extra.length === 0 && parserOk,
+    missing,
+    extra,
+    parserOk,
+  };
 }
 
 // ─────────────────────────── cli ───────────────────────────
@@ -379,8 +418,8 @@ function main() {
     const r = selfTest();
     console.log(
       r.ok
-        ? "selftest ok: serialize registry matches backlog.md"
-        : `selftest FAILED\n  in code, undocumented: ${r.missing.join(", ") || "-"}\n  documented, not in code: ${r.extra.join(", ") || "-"}`,
+        ? "selftest ok: serialize registry matches backlog.md; criterion parser handles wrapped lines"
+        : `selftest FAILED\n  in code, undocumented: ${r.missing.join(", ") || "-"}\n  documented, not in code: ${r.extra.join(", ") || "-"}\n  wrapped-criterion parser: ${r.parserOk ? "ok" : "BROKEN — a multi-line КОГДА/ТО criterion loses its ТО half"}`,
     );
     process.exit(r.ok ? 0 : 1);
   }

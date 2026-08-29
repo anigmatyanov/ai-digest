@@ -16,8 +16,9 @@
 #   * A sub-agent that never `cd`s into its worktree and whose cwd is the main tree: it is
 #     blocked from writing, which is correct, but the message cannot name its worktree.
 #   * Symlinked paths that resolve outside the worktree — normalisation is lexical.
-#   * Paths OUTSIDE the repository entirely (/tmp, /dev/null, the scratchpad). Deliberate:
-#     they are not this hook's business, and refusing them costs a retry every time.
+#   * Symlinks that resolve out of the repository: normalisation is lexical, so a link
+#     inside the tree pointing at ~/Desktop is still judged "inside". Resolving it would
+#     mean touching the filesystem for a path that often does not exist yet.
 #
 # KILL SWITCH: .claude/hooks/enforce-subagent-worktree.disabled
 
@@ -41,11 +42,36 @@ target="$(printf '%s' "$payload" | jq -r '.tool_input.file_path // .tool_input.n
 # non-existent target is still judged correctly.
 norm="$(printf '%s' "$target" | awk -F/ '{n=0; for(i=1;i<=NF;i++){ if($i=="."||$i==""){continue} else if($i==".."){ if(n>0) n-- } else { p[++n]=$i } } s=""; for(j=1;j<=n;j++) s=s"/"p[j]; if(s=="") s="/"; print s}')"
 
-# Outside the repository: explicitly not our business (see NAMED LIMITS).
-[[ "$norm" != "$REPO_ROOT"/* && "$norm" != "$REPO_ROOT" ]] && exit 0
+# Outside the repository: scratch space only, everything else denied.
+#
+# WHY THIS CHANGED (2026-08-29): this hook used to wave through every path outside
+# $REPO_ROOT as "not our business". Measured that day: a sub-agent could create files in
+# ~/Desktop and inside the sibling project ~/Desktop/_LMS, because nothing else stops it
+# — there is no sandbox, no additionalDirectories, and the settings deny-list covers
+# `rm -rf ~` but not ~/Desktop/anything. With 4-6 agents running at once, a mistyped
+# absolute path lands in someone else's project and surfaces a week later as an
+# inexplicable diff. Scratch paths still pass: refusing /tmp would cost a retry on every
+# legitimate temporary file, and a temp file damages nothing.
+is_scratch() {
+  case "$1" in
+    /dev/null|/dev/stdout|/dev/stderr) return 0 ;;
+    /tmp/*|/private/tmp/*|/var/folders/*|/private/var/folders/*) return 0 ;;
+  esac
+  local t="${TMPDIR:-}"
+  [[ -n "$t" && "$1" == "${t%/}"/* ]] && return 0
+  return 1
+}
 
 WT_PREFIX="$REPO_ROOT/.claude/worktrees/"
-if [[ "$norm" == "$WT_PREFIX"* ]]; then
+if [[ "$norm" != "$REPO_ROOT"/* && "$norm" != "$REPO_ROOT" ]]; then
+  is_scratch "$norm" && exit 0
+  reason="Blocked: sub-agents must not write outside the repository.
+  target: $norm
+That path is not under $REPO_ROOT — it is a sibling project, a personal file or a system
+location, and writing there corrupts work this repository cannot see or review. Temporary
+files belong in \$TMPDIR or the session scratchpad. If you meant a project file, use a
+path inside your own worktree."
+elif [[ "$norm" == "$WT_PREFIX"* ]]; then
   own="${norm#"$WT_PREFIX"}"; own="${own%%/*}"
   cwd_own=""
   [[ "$PWD" == "$WT_PREFIX"* ]] && { cwd_own="${PWD#"$WT_PREFIX"}"; cwd_own="${cwd_own%%/*}"; }
