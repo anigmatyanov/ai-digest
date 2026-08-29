@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — plain .mjs helper, no declarations; the test is the contract.
 import { vectorOrderingProblem } from "./migration-checks.mjs";
 
 describe("vectorOrderingProblem", () => {
