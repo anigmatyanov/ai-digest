@@ -1,7 +1,7 @@
 ---
 id: E-008
 title: "Коннектор Hacker News через Algolia с порогом по очкам"
-status: draft
+status: todo
 priority: P2
 size: S
 autonomy: auto

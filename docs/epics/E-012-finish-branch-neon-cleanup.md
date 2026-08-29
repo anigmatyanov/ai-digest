@@ -1,7 +1,7 @@
 ---
 id: E-012
 title: "Гард пропускает удаление Neon-ветки, которое сам /finish-branch и предписывает"
-status: todo
+status: done
 priority: P2
 size: S
 autonomy: plan-gated
@@ -15,9 +15,9 @@ ui_visible: false
 cloud_safe: true
 
 claimed_by: ""
-branch: ""
+branch: agent/e-012-guard-carve-out
 created: 2026-08-29
-done: ""
+done: 2026-08-29
 discovered_from: E-005
 ---
 

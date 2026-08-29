@@ -1,7 +1,7 @@
 ---
 id: E-009
 title: "Коннектор GitHub: releases и commits через .atom, без расхода квоты REST"
-status: draft
+status: todo
 priority: P2
 size: S
 autonomy: auto
