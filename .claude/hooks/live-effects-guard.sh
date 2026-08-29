@@ -183,6 +183,19 @@ and .env silently supplies the shared value when the variable is unset. Pin the 
 in the command, and use \`prisma migrate dev\` against your own branch."
 fi
 
+# Offline Prisma commands. Added 2026-08-29 while E-007 was being written: `prisma migrate
+# diff --from-empty --to-schema-datamodel --script` renders SQL from a schema file and opens
+# no connection at all, but the word `migrate` put it in the danger zone and it failed closed.
+#
+# The carve-out is keyed on the ABSENCE of a database endpoint, not on the subcommand: `diff`
+# with `--from-url` or `--to-url` does connect, so it stays blocked. `validate`, `format` and
+# `generate` are file-only and ride along.
+if printf '%s\n' "$cmd" | grep -qE 'prisma[[:space:]]+(migrate[[:space:]]+diff|validate|format|generate)([[:space:]]|$)'; then
+  if ! printf '%s\n' "$cmd" | grep -qE '\-\-(from|to)-url|\-\-shadow-database-url|\-\-from-migrations|\-\-to-migrations'; then
+    exit 0
+  fi
+fi
+
 if printf '%s' "$cmd" | grep -qiE 'neonctl[[:space:]]+(branches[[:space:]]+delete|projects[[:space:]]+delete|databases[[:space:]]+delete)'; then
   deny "Blocked: deleting a Neon branch, database or project.
   command: $cmd

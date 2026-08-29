@@ -41,6 +41,20 @@ expect 2 "block: vercel deploy --prod"       $G "$(cjson 'vercel deploy --prod')
 expect 2 "block: gh workflow run"            $G "$(cjson 'gh workflow run digest.yml')"
 expect 2 "block: prisma migrate deploy"      $G "$(cjson 'npx prisma migrate deploy')"
 expect 2 "block: neonctl branches delete"    $G "$(cjson 'neonctl branches delete main')"
+# Offline Prisma renders SQL from a file and opens no connection; the word `migrate` used to
+# put it in the danger zone and fail it closed. Keyed on the absence of a database endpoint,
+# so the same subcommand pointed at a live database stays blocked.
+#
+# Measured: with the carve-out removed, exactly ONE of these turns red — `migrate diff
+# --from-empty`. `validate` and `generate` carry no `migrate` and never entered the danger
+# zone, so they are regression pins, not evidence for this change. The two `expect 2` cases
+# are the ones that matter in the other direction: they prove the carve-out is not a bypass.
+expect 0 "prisma: migrate diff from-empty"   $G "$(cjson 'prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script')"
+expect 0 "prisma: validate"                  $G "$(cjson 'prisma validate')"
+expect 0 "prisma: generate"                  $G "$(cjson 'prisma generate')"
+expect 2 "block: migrate diff --from-url"    $G "$(cjson 'prisma migrate diff --from-url $DATABASE_URL --to-schema-datamodel prisma/schema.prisma')"
+expect 2 "block: diff with shadow db url"    $G "$(cjson 'prisma migrate diff --from-empty --to-schema-datamodel s.prisma --shadow-database-url postgres://x')"
+expect 2 "block: prisma migrate dev"         $G "$(cjson 'prisma migrate dev --name init')"
 # neonctl read verbs pass, mutating ones do not. Added after the guard blocked `neonctl me`
 # during Neon setup: a false block on an inspection command is how a rail gets switched off
 # for good. NOTE: this file cannot be written by a shell heredoc — the guard judges the whole
