@@ -1,7 +1,7 @@
 ---
 id: E-011
 title: "Прогон продолжает с сохранённого состояния, а не переделывает стадии заново"
-status: draft
+status: todo
 priority: P1
 size: M
 autonomy: plan-gated

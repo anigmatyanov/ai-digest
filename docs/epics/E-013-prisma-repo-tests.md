@@ -1,7 +1,7 @@
 ---
 id: E-013
 title: "Идемпотентность репозитория доказана гейтом, а не транскриптом живого прогона"
-status: todo
+status: done
 priority: P1
 size: M
 autonomy: plan-gated
@@ -15,9 +15,9 @@ ui_visible: false
 cloud_safe: true
 
 claimed_by: ""
-branch: ""
+branch: agent/e-013-prismarepo-tests
 created: 2026-08-29
-done: ""
+done: 2026-08-29
 discovered_from: E-007
 ---
 
