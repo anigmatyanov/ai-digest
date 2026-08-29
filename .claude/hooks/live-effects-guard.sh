@@ -191,7 +191,10 @@ fi
 # with `--from-url` or `--to-url` does connect, so it stays blocked. `validate`, `format` and
 # `generate` are file-only and ride along.
 if printf '%s\n' "$cmd" | grep -qE 'prisma[[:space:]]+(migrate[[:space:]]+diff|validate|format|generate)([[:space:]]|$)'; then
-  if ! printf '%s\n' "$cmd" | grep -qE '\-\-(from|to)-url|\-\-shadow-database-url|\-\-from-migrations|\-\-to-migrations'; then
+  # `--from-config-datasource` reads the URL out of prisma.config.ts and connects. It was
+  # missed on the first pass and found by reading the CLI's own help output — the exact
+  # reason a carve-out must enumerate what disqualifies it rather than trust a subcommand.
+  if ! printf '%s\n' "$cmd" | grep -qE '\-\-(from|to)-url|\-\-shadow-database-url|\-\-(from|to)-migrations|\-\-(from|to)-config-datasource'; then
     exit 0
   fi
 fi

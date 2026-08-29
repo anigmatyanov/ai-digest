@@ -49,11 +49,12 @@ expect 2 "block: neonctl branches delete"    $G "$(cjson 'neonctl branches delet
 # --from-empty`. `validate` and `generate` carry no `migrate` and never entered the danger
 # zone, so they are regression pins, not evidence for this change. The two `expect 2` cases
 # are the ones that matter in the other direction: they prove the carve-out is not a bypass.
-expect 0 "prisma: migrate diff from-empty"   $G "$(cjson 'prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script')"
+expect 0 "prisma: migrate diff from-empty"   $G "$(cjson 'prisma migrate diff --from-empty --to-schema prisma/schema.prisma --script')"
 expect 0 "prisma: validate"                  $G "$(cjson 'prisma validate')"
 expect 0 "prisma: generate"                  $G "$(cjson 'prisma generate')"
 expect 2 "block: migrate diff --from-url"    $G "$(cjson 'prisma migrate diff --from-url $DATABASE_URL --to-schema-datamodel prisma/schema.prisma')"
-expect 2 "block: diff with shadow db url"    $G "$(cjson 'prisma migrate diff --from-empty --to-schema-datamodel s.prisma --shadow-database-url postgres://x')"
+expect 2 "block: diff with shadow db url"    $G "$(cjson 'prisma migrate diff --from-empty --to-schema s.prisma --shadow-database-url postgres://x')"
+expect 2 "block: diff from config datasource" $G "$(cjson 'prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script')"
 expect 2 "block: prisma migrate dev"         $G "$(cjson 'prisma migrate dev --name init')"
 # neonctl read verbs pass, mutating ones do not. Added after the guard blocked `neonctl me`
 # during Neon setup: a false block on an inspection command is how a rail gets switched off
