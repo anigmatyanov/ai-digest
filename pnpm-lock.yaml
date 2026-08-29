@@ -134,6 +134,9 @@ importers:
 
   profiles:
     dependencies:
+      '@ai-digest/connectors':
+        specifier: workspace:*
+        version: link:../packages/connectors
       zod:
         specifier: ^4.4.3
         version: 4.4.3

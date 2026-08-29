@@ -3,6 +3,9 @@
 // Editing this file by hand defeats the reason it is generated: two agents adding a
 // connector each must not touch a shared file. Add a directory under src/ and re-run
 // `pnpm gen:connectors`.
+//
+// Keyed by the `kind` each connector declares, not by its directory name: `getConnector`
+// is called with `source.kind`, and the two are allowed to differ.
 
 import type { AnyConnector } from "@ai-digest/core";
 import { rssConnector } from "./rss/index.js";
@@ -12,6 +15,18 @@ export const connectors = {
 } as const;
 
 export type ConnectorKind = keyof typeof connectors;
+
+/**
+ * The per-kind config schemas profiles/schema.ts builds its source union from.
+ *
+ * `as const` and the ABSENCE of an `AnyConnector` cast are load-bearing. `AnyConnector`
+ * is `ConnectorDefinition<never, never>`, which erases the config type and widens `kind`
+ * to `string`; a source entry would then accept any config object at all, and the reason
+ * profiles are TypeScript rather than YAML would be gone with no compile error to say so.
+ */
+export const sourceVariants = [
+  { kind: "rss", config: rssConnector.configSchema },
+] as const;
 
 /** Look up a connector by kind, failing with the list of known kinds rather than undefined. */
 export function getConnector(kind: string): AnyConnector {

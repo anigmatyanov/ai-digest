@@ -2,5 +2,6 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": { "rootDir": "./", "outDir": "./dist" },
   "include": ["**/*.ts"],
-  "exclude": ["**/*.test.ts", "dist"]
+  "exclude": ["**/*.test.ts", "dist"],
+  "references": [{ "path": "../packages/connectors" }]
 }

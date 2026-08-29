@@ -8,6 +8,6 @@
   "main": "./dist/schema.js",
   "types": "./dist/schema.d.ts",
   "scripts": { "build": "tsc -b", "clean": "rm -rf dist *.tsbuildinfo" },
-  "dependencies": { "zod": "^4.4.3" },
+  "dependencies": { "@ai-digest/connectors": "workspace:*", "zod": "^4.4.3" },
   "devDependencies": { "@types/node": "24.13.3" }
 }

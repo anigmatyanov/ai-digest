@@ -14,24 +14,137 @@
  */
 
 import { z } from "zod";
+import { sourceVariants } from "@ai-digest/connectors";
 
-/** Source entries are a discriminated union on `kind` — that is what buys the typo check. */
-const RssSourceSchema = z.object({
-  key: z.string().regex(/^[a-z0-9]+:[a-z0-9-]+$/, "expected kind:name, e.g. rss:openai"),
-  kind: z.literal("rss"),
-  /** Contribution to the authority component of the score. */
-  weight: z.number().min(0).max(3).default(1),
-  enabled: z.boolean().default(true),
-  config: z.object({
-    feedUrl: z.string().url(),
-    sourceName: z.string().min(1),
-  }),
-  /** Offline runs read this file instead of the network. */
-  fixture: z.string().optional(),
-});
+/**
+ * What a connector contributes to this schema: its `kind` and the schema of its config.
+ *
+ * The contributions arrive from `packages/connectors/src/registry.ts`, which is generated.
+ * That is the point of the indirection: adding a source is a new directory under
+ * `packages/connectors/src/` plus `pnpm gen:connectors`, and this file does not change.
+ * A hand-written union here would make every connector epic edit a file under the
+ * `profile-schema` serialize label, and connector epics would run one at a time.
+ */
+export interface SourceContribution<K extends string = string, C = unknown> {
+  readonly kind: K;
+  readonly config: z.ZodType<C>;
+}
 
-export const SourceSchema = z.discriminatedUnion("kind", [RssSourceSchema]);
+/**
+ * The half of a source entry that is the same whatever the source is.
+ *
+ * Everything kind-specific is `config`, and it comes from the connector.
+ */
+export function sourceVariantSchema<K extends string, C>(kind: K, config: z.ZodType<C>) {
+  return z.object({
+    key: z.string().regex(/^[a-z0-9]+:[a-z0-9-]+$/, "expected kind:name, e.g. rss:openai"),
+    kind: z.literal(kind),
+    /** Contribution to the authority component of the score. */
+    weight: z.number().min(0).max(3).default(1),
+    enabled: z.boolean().default(true),
+    config,
+    /** Offline runs read this file instead of the network. */
+    fixture: z.string().optional(),
+  });
+}
+
+type SourceVariant<T extends SourceContribution> = ReturnType<
+  typeof sourceVariantSchema<T["kind"], z.output<T["config"]>>
+>;
+
+/**
+ * Mapped over the tuple, not `.map()`ed over an array: `z.discriminatedUnion` wants a
+ * non-empty tuple of discriminable schemas, and the result of `Array.prototype.map` is a
+ * plain array whose element type is the union of every variant. Going through the array
+ * type is what collapses `config` to `unknown` — silently, with no compile error.
+ */
+type SourceVariantTuple<T extends readonly SourceContribution[]> = {
+  -readonly [I in keyof T]: SourceVariant<T[I]>;
+};
+
+/**
+ * Fold the connectors' contributions into the source union.
+ *
+ * Exported so a test can exercise the mechanism on synthetic contributions rather than on
+ * whichever connectors happen to exist today.
+ */
+export function buildSourceSchema<
+  const T extends readonly [SourceContribution, ...SourceContribution[]],
+>(contributions: T) {
+  const known = contributions.map((c) => c.kind);
+  // The one cast in this file, and it is localised here on purpose: TypeScript cannot
+  // prove that a mapped type over a generic non-empty tuple is itself non-empty, so the
+  // runtime `.map()` has to be re-attached to the tuple type the union requires.
+  const variants = contributions.map((c) =>
+    sourceVariantSchema(c.kind, c.config),
+  ) as SourceVariantTuple<T>;
+
+  return z.discriminatedUnion("kind", variants, {
+    error: (issue) => {
+      // Only the union's own "nothing matched the discriminator" issue is reworded. zod
+      // says `Invalid discriminator value. Expected 'rss'` — it lists what was expected
+      // and never says what it got, which is the half a reader needs. Other codes (a
+      // source entry that is not an object at all) keep zod's wording.
+      if (issue.code !== "invalid_union") return undefined;
+      const input: unknown = issue.input;
+      const got =
+        typeof input === "object" && input !== null && "kind" in input
+          ? JSON.stringify(input.kind)
+          : "(missing)";
+      return (
+        `unknown source kind ${got}. Known kinds: ${known.join(", ")}. ` +
+        "A source's kind comes from a connector: add a directory under " +
+        "packages/connectors/src/ and run `pnpm gen:connectors`."
+      );
+    },
+  });
+}
+
+export const SourceSchema = buildSourceSchema(sourceVariants);
+/**
+ * `z.infer` (the OUTPUT type), never `z.input`. A connector declares
+ * `configSchema: z.ZodType<TConfig>`, whose zod-4 input type is `unknown`; switching to
+ * `z.input` would turn every `config` into `unknown` and take the typo check with it.
+ */
 export type Source = z.infer<typeof SourceSchema>;
+
+/*
+ * Compile-time guards on the two properties that make this schema worth writing in
+ * TypeScript. They live in a BUILT file rather than in a test on purpose: build configs
+ * exclude *.test.ts, so a type assertion in a test is not checked by anything that runs.
+ *
+ * `_sourceKindStaysLiteral` fails if the union widened to `kind: string`, which is what
+ * the generated tuple losing its `as const` produces.
+ *
+ * `_sourceConfigStaysTyped` covers the three ways `config` degrades, because they degrade
+ * to three DIFFERENT types and a guard against one of them silently misses the others:
+ *   - `unknown` — `z.input` in place of `z.infer` (a connector's `z.ZodType<TConfig>` has
+ *     `unknown` as its input type);
+ *   - `never`   — a contribution typed through `AnyConnector`, i.e.
+ *     `ConnectorDefinition<never, never>`;
+ *   - `Record<string, unknown>` — the config schema weakened to `z.record`, the exact
+ *     shortcut ## Границы of this epic forbids.
+ * Every one of them still compiles and still validates; it just stops rejecting a
+ * misspelled config field, which is the entire reason profiles are not YAML.
+ */
+type KindStaysLiteral<T extends string> = string extends T ? false : true;
+type ConfigStaysTyped<T> = unknown extends T
+  ? false
+  : [T] extends [never]
+    ? false
+    : string extends keyof T
+      ? false
+      : true;
+const _sourceKindStaysLiteral: KindStaysLiteral<Source["kind"]> = true;
+const _sourceConfigStaysTyped: ConfigStaysTyped<Source["config"]> = true;
+
+/*
+ * Named limit (DoD #8): the runtime half of the typo check only fires when the correctly
+ * spelled field is REQUIRED. zod strips unknown keys, so `sourceNam:` is reported as
+ * `sources.0.config.sourceName: expected string, received undefined`. Misspell an
+ * OPTIONAL field and validation passes — that case is caught by TypeScript at the point
+ * the profile is written, and by nothing at all if a profile is ever loaded as JSON.
+ */
 
 export const CardTypePolicySchema = z.object({
   title: z.string().min(1),
