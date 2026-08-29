@@ -6,7 +6,8 @@
  * only assertions that survive are the structural ones — and those are exactly what can
  * be checked against a recording instead, for free and without a key.
  *
- * Recordings are produced once, deliberately, by a live run (`pnpm golden:record`), and
+ * Recordings are produced once, deliberately, by a live run carrying both --fixtures and
+ * --record (`pnpm digest:run --profile profiles/dist/_test.js --fixtures --record`), and
  * committed. Editing one by hand is allowed but must be marked, or the next reader will
  * take it for something the model actually said.
  */
@@ -21,7 +22,8 @@ export class MissingRecordingError extends LlmContractError {
     super(
       "fixture",
       `no recorded model response for "${key}" in ${dir}.\n` +
-        `Record it once with a live run (pnpm golden:record), then commit the file. ` +
+        `Record it once with \`pnpm digest:run --profile <profile> --fixtures --record\`, then ` +
+        `commit the file. ` +
         `A fixtures run must never fall back to calling the model — that is how an ` +
         `"offline" gate quietly starts needing a key and a network.`,
     );
