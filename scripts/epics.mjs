@@ -27,7 +27,16 @@ const EPIC_DIR = join(ROOT, "docs", "epics");
 const ACTIVE = new Set(["todo", "in-progress", "review"]);
 const HOLDS_SERIALIZE = new Set(["in-progress", "review"]);
 const SIZES = new Set(["S", "M"]);
-const AREAS = new Set(["connectors", "pipeline", "llm", "web", "profiles", "infra", "tooling"]);
+const AREAS = new Set([
+  "connectors",
+  "pipeline",
+  "llm",
+  "telegram",
+  "web",
+  "profiles",
+  "infra",
+  "tooling",
+]);
 const STATUSES = new Set(["draft", "todo", "in-progress", "review", "done", "blocked", "dropped"]);
 
 /**

@@ -5,7 +5,7 @@ status: draft # draft | todo | in-progress | review | done | blocked | dropped
 priority: P2 # P1 | P2 | P3
 size: S # S (≤ полдня) | M (≤ ~1 день агентной работы). L не бывает.
 autonomy: auto # auto | plan-gated | paired
-area: "" # connectors | pipeline | llm | web | profiles | infra | tooling
+area: "" # connectors | pipeline | llm | telegram | web | profiles | infra | tooling
 depends_on: [] # [E-004] — должны быть done
 serialize: [] # метки из реестра .claude/rules/backlog.md
 

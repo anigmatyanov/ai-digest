@@ -109,7 +109,9 @@ git show "$(git merge-base main <branch>):docs/epics/E-NNN-<slug>.md"
 
 Ровно одна на эпик; группировка для владельца, на планирование не влияет.
 
-`connectors` · `pipeline` · `llm` · `web` · `profiles` · `infra` (CI, cron, деплой, миграции) · `tooling` (скрипты, бэклог, харнессы — не продукт).
+`connectors` · `pipeline` · `llm` · `telegram` (публикация, вебхук, окно отмены — у канала
+свой набор ловушек и своя автономия) · `web` · `profiles` · `infra` (CI, cron, деплой,
+миграции) · `tooling` (скрипты, бэклог, харнессы — не продукт).
 
 ## Уровни автономии
 
