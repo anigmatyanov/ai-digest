@@ -23,6 +23,7 @@
     "test:hooks": "bash test/hooks/run.sh",
     "epics": "node scripts/epics.mjs",
     "db:generate": "pnpm --filter @ai-digest/db exec prisma generate",
+    "db:status": "node scripts/db-status.mjs",
     "postinstall": "pnpm --filter @ai-digest/db exec prisma generate --no-hints",
     "gen:connectors": "node scripts/gen-connectors.mjs",
     "profile:validate": "pnpm build >/dev/null && node scripts/validate-profiles.mjs",

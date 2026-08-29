@@ -27,10 +27,12 @@ import type { Card, Issue } from "@ai-digest/core";
 import {
   AnthropicGateway,
   BudgetGuard,
+  contentHash,
   FixtureGateway,
   formatCostReport,
   MemoryLlmCache,
 } from "@ai-digest/llm";
+import { createPrismaClient, PrismaRepo } from "@ai-digest/db";
 import { makeIngestStage, type SourceConfig } from "./ingest.js";
 
 export interface CliOptions {
@@ -133,7 +135,32 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         cache: new MemoryLlmCache(),
       });
 
-  const repo = new MemoryRepo();
+  // A fixtures run is offline by definition and never opens a connection, even when
+  // DATABASE_URL happens to be set in the shell. Without that rule the golden gate starts
+  // failing on a cold Neon branch, on a neighbour's unapplied migration and on a flaky
+  // network — none of which say anything about the pipeline, and all of which end with
+  // someone deleting the gate.
+  const repo = options.useFixtures
+    ? new MemoryRepo()
+    : await PrismaRepo.open(
+        createPrismaClient(requireEnv("DATABASE_URL", env)),
+        {
+          slug: String(profile["slug"]),
+          title: String(profile["title"]),
+          lang: String(profile["lang"]),
+          profileJson: profile,
+          // Insertion order of a TS module object is stable across runs of the same file,
+          // so a plain stringify is reproducible here. The hash exists to tell two profile
+          // VERSIONS apart, not to canonicalise key order.
+          profileHash: contentHash(JSON.stringify(profile)),
+        },
+        (profile["sources"] as SourceConfig[]).map((s) => ({
+          key: s.key,
+          kind: s.kind,
+          enabled: s.enabled ?? true,
+          weight: s.weight ?? 1,
+        })),
+      );
   const degraded: { sourceKey: string; reason: string }[] = [];
 
   const ctx: RunContext = {
