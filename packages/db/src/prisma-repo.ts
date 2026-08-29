@@ -40,6 +40,206 @@ const iso = (d: Date): string => d.toISOString();
 const at = (s: string | undefined): Date | null => (s === undefined ? null : new Date(s));
 const isoOrUndefined = (d: Date | null): string | undefined => (d === null ? undefined : iso(d));
 
+/**
+ * Upsert arguments, built where they can be checked without a database.
+ *
+ * The idempotency of this product is not the queries below — it is their SHAPE: which unique
+ * key each upsert matches on, what belongs to `create` alone, and what `update` must not
+ * touch. None of that needs Postgres to verify, and while it lived inline inside the methods
+ * the only proof it was right was a live-run transcript (E-007 `## Заметки`). Swapping
+ * `where: { sourceId_externalId: … }` for `where: { id }` compiled, ran, and passed every
+ * gate this repository had. As data, the same shape is asserted in prisma-repo.test.ts.
+ *
+ * These are pure: no client, no clock beyond what the caller already supplied as an ISO
+ * string, no await.
+ */
+
+/**
+ * Upsert arguments minus the projection knobs. This repository always reads whole rows, and
+ * dropping `select`/`include`/`omit` from the declared type is what keeps the client's
+ * result type the full model rather than a union that depends on a projection nobody passes.
+ */
+type UpsertShape<T> = Omit<T, "select" | "include" | "omit">;
+
+/** Keyed on the slug, which is what a profile is identified by; the id is minted here. */
+export function topicUpsertArgs(topic: TopicIdentity): UpsertShape<Prisma.TopicUpsertArgs> {
+  const data = {
+    title: topic.title,
+    lang: topic.lang,
+    profileJson: topic.profileJson as object,
+    profileHash: topic.profileHash,
+  };
+  return {
+    where: { slug: topic.slug },
+    create: { ...data, slug: topic.slug },
+    update: data,
+  };
+}
+
+/** Keyed on (topicId, key): the same source key under two topics is two rows, not one. */
+export function sourceUpsertArgs(
+  topicId: string,
+  source: SourceIdentity,
+): UpsertShape<Prisma.SourceUpsertArgs> {
+  const data = { kind: source.kind, enabled: source.enabled, weight: source.weight };
+  return {
+    where: { topicId_key: { topicId, key: source.key } },
+    create: { ...data, topicId, key: source.key },
+    // `cursor`, `health` and the failure counters are runtime state and are deliberately
+    // NOT in `data`: reconciling configuration must not erase what the last run learned.
+    // The silent-death detector reads exactly that history.
+    update: data,
+  };
+}
+
+/**
+ * Keyed on (sourceId, externalId) — the constraint that makes ingest idempotent. On a
+ * second run the row is found and updated in place, which is why a restart costs nothing
+ * and creates nothing.
+ *
+ * No `id` in `create`, deliberately. An earlier version passed the pipeline's own
+ * `raw-<sourceKey>-<externalId>`, which carries no topic while the unique key does: the
+ * same item under two topics missed on `where`, fell through to `create`, and collided on
+ * the primary key. References still resolve because `putRawItems` returns the persisted id.
+ */
+export function rawItemUpsertArgs(
+  sourceId: string,
+  item: RawItem,
+): UpsertShape<Prisma.RawItemUpsertArgs> {
+  const data = {
+    url: item.url,
+    title: item.title ?? null,
+    author: item.author ?? null,
+    publishedAt: at(item.publishedAt),
+    body: item.body ?? null,
+    bodyFormat: item.bodyFormat,
+    lang: item.lang ?? null,
+    signals: item.signals,
+  };
+  return {
+    where: { sourceId_externalId: { sourceId, externalId: item.externalId } },
+    // `fetchedAt` is create-only: it records when this item first reached us, and a rerun
+    // that finds the row again has not re-fetched anything new.
+    create: { ...data, sourceId, externalId: item.externalId, fetchedAt: new Date(item.fetchedAt) },
+    update: data,
+  };
+}
+
+/**
+ * Keyed on (topicId, canonicalUrlHash) — the fold that turns five sources into one
+ * candidate.
+ *
+ * No `id` in `create`, and that is the fix from the E-007 review rather than an omission.
+ * The pipeline builds `cand-<first 12 hex of the canonical hash>`, which is a TRUNCATION of
+ * the very key this upsert matches on, and it omits the topic that the key includes. Two
+ * measured consequences: one article under two topics misses on `where` and collides on the
+ * primary key, and 48 bits collide by birthday at around 24k candidates.
+ */
+export function candidateUpsertArgs(
+  topicId: string,
+  c: Candidate,
+): UpsertShape<Prisma.CandidateUpsertArgs> {
+  const data = {
+    status: c.status,
+    statusReason: c.statusReason ?? null,
+    canonicalUrl: c.canonicalUrl,
+    title: c.title,
+    lang: c.lang ?? null,
+    publishedAt: at(c.publishedAt),
+    contentHash: c.contentHash,
+    extractedText: c.extractedText,
+    prefilterScore: c.prefilterScore ?? null,
+    score: c.score ?? null,
+    // Prisma distinguishes "JSON null" from "column is NULL"; a bare `null` is rejected by
+    // the type precisely so the choice has to be made. We mean the column.
+    scoreBreakdown: c.scoreBreakdown ?? Prisma.DbNull,
+    duplicateOfId: c.duplicateOfId ?? null,
+    cycleId: c.cycleId ?? null,
+  };
+  return {
+    where: { topicId_canonicalUrlHash: { topicId, canonicalUrlHash: c.canonicalUrlHash } },
+    create: {
+      ...data,
+      topicId,
+      canonicalUrlHash: c.canonicalUrlHash,
+      firstSeenAt: new Date(c.firstSeenAt),
+    },
+    // `firstSeenAt` is not updated: it records when this news first appeared, and the second
+    // source carrying it does not make it newer.
+    update: data,
+  };
+}
+
+/**
+ * Keyed on (candidateId, techniqueKey) rather than on the id the pipeline built: one
+ * candidate yields one card per technique, and that is a fact about the domain rather than
+ * about how `extract` happens to name things today.
+ */
+export function cardUpsertArgs(card: Card): UpsertShape<Prisma.CardUpsertArgs> {
+  const data = {
+    candidateId: card.candidateId,
+    type: card.type,
+    techniqueKey: card.techniqueKey,
+    slug: card.slug,
+    title: card.title,
+    summary: card.summary,
+    body: card.body,
+    steps: card.steps,
+    tags: card.tags,
+    claims: card.claims as unknown as object,
+    attribution: card.attribution as unknown as object,
+    evidenceOk: card.evidenceOk,
+    promptVersion: card.promptVersion,
+  };
+  return {
+    where: {
+      candidateId_techniqueKey: {
+        candidateId: card.candidateId,
+        techniqueKey: card.techniqueKey,
+      },
+    },
+    create: { ...data, id: card.id },
+    update: data,
+  };
+}
+
+/** One issue per cycle, enforced by the unique key rather than by looking first. */
+export function issueUpsertArgs(
+  topicId: string,
+  issue: Issue,
+): UpsertShape<Prisma.IssueUpsertArgs> {
+  const data = {
+    number: issue.number,
+    title: issue.title,
+    intro: issue.intro,
+    publishedAt: at(issue.publishedAt),
+  };
+  return {
+    where: { topicId_cycleId: { topicId, cycleId: issue.cycleId } },
+    create: { ...data, topicId, cycleId: issue.cycleId },
+    update: data,
+  };
+}
+
+/** Rows of the candidate→raw-item join. Order is the caller's; the table has no position. */
+export function candidateRawItemRows(
+  candidateId: string,
+  rawItemIds: readonly string[],
+): Prisma.CandidateRawItemCreateManyInput[] {
+  return rawItemIds.map((rawItemId) => ({ candidateId, rawItemId }));
+}
+
+/**
+ * Rows of the issue→card join. `position` is the index, so the order of `cardIds` IS the
+ * order of the published issue — nothing else records it.
+ */
+export function issueCardRows(
+  issueId: string,
+  cardIds: readonly string[],
+): Prisma.IssueCardCreateManyInput[] {
+  return cardIds.map((cardId, position) => ({ issueId, cardId, position }));
+}
+
 export class PrismaRepo implements Repo {
   /** sourceKey -> id. Populated by `open`, so no write path has to query for it. */
   private readonly sourceIds: ReadonlyMap<string, string>;
@@ -99,38 +299,11 @@ export class PrismaRepo implements Repo {
     topic: TopicIdentity,
     sources: readonly SourceIdentity[],
   ): Promise<PrismaRepo> {
-    const row = await prisma.topic.upsert({
-      where: { slug: topic.slug },
-      create: {
-        slug: topic.slug,
-        title: topic.title,
-        lang: topic.lang,
-        profileJson: topic.profileJson as object,
-        profileHash: topic.profileHash,
-      },
-      update: {
-        title: topic.title,
-        lang: topic.lang,
-        profileJson: topic.profileJson as object,
-        profileHash: topic.profileHash,
-      },
-    });
+    const row = await prisma.topic.upsert(topicUpsertArgs(topic));
 
     const ids = new Map<string, string>();
     for (const source of sources) {
-      const persisted = await prisma.source.upsert({
-        where: { topicId_key: { topicId: row.id, key: source.key } },
-        create: {
-          topicId: row.id,
-          key: source.key,
-          kind: source.kind,
-          enabled: source.enabled,
-          weight: source.weight,
-        },
-        // `cursor`, `health` and the failure counters are runtime state and are deliberately
-        // NOT reset here: reconciling configuration must not erase what the last run learned.
-        update: { kind: source.kind, enabled: source.enabled, weight: source.weight },
-      });
+      const persisted = await prisma.source.upsert(sourceUpsertArgs(row.id, source));
       ids.set(source.key, persisted.id);
     }
 
@@ -153,33 +326,7 @@ export class PrismaRepo implements Repo {
     const out: RawItem[] = [];
     for (const item of items) {
       const sourceId = this.sourceIdFor(item.sourceKey);
-      const data = {
-        url: item.url,
-        title: item.title ?? null,
-        author: item.author ?? null,
-        publishedAt: at(item.publishedAt),
-        body: item.body ?? null,
-        bodyFormat: item.bodyFormat,
-        lang: item.lang ?? null,
-        signals: item.signals,
-      };
-      // The unique key does the deduplication. On a second run the row is found and
-      // updated in place, which is why a restart costs nothing and creates nothing.
-      const row = await this.prisma.rawItem.upsert({
-        where: { sourceId_externalId: { sourceId, externalId: item.externalId } },
-        // The database mints the id. An earlier version passed the pipeline's own
-        // `raw-<sourceKey>-<externalId>`, which carries no topic while the unique key
-        // does: the same item under two topics missed on `where`, fell through to
-        // `create`, and collided on the primary key. References still resolve because
-        // the persisted id is what this method returns.
-        create: {
-          ...data,
-          sourceId,
-          externalId: item.externalId,
-          fetchedAt: new Date(item.fetchedAt),
-        },
-        update: data,
-      });
+      const row = await this.prisma.rawItem.upsert(rawItemUpsertArgs(sourceId, item));
       // The persisted id is returned, not the one the caller generated: a candidate created
       // on the second run must reference the row that already exists.
       out.push({ ...item, id: row.id });
@@ -211,47 +358,7 @@ export class PrismaRepo implements Repo {
   async putCandidates(candidates: Candidate[]): Promise<Candidate[]> {
     const out: Candidate[] = [];
     for (const c of candidates) {
-      const data = {
-        status: c.status,
-        statusReason: c.statusReason ?? null,
-        canonicalUrl: c.canonicalUrl,
-        title: c.title,
-        lang: c.lang ?? null,
-        publishedAt: at(c.publishedAt),
-        contentHash: c.contentHash,
-        extractedText: c.extractedText,
-        prefilterScore: c.prefilterScore ?? null,
-        score: c.score ?? null,
-        // Prisma distinguishes "JSON null" from "column is NULL"; a bare `null` is
-        // rejected by the type precisely so the choice has to be made. We mean the column.
-        scoreBreakdown: c.scoreBreakdown ?? Prisma.DbNull,
-        duplicateOfId: c.duplicateOfId ?? null,
-        cycleId: c.cycleId ?? null,
-      };
-      const row = await this.prisma.candidate.upsert({
-        where: {
-          topicId_canonicalUrlHash: {
-            topicId: this.topicId,
-            canonicalUrlHash: c.canonicalUrlHash,
-          },
-        },
-        create: {
-          ...data,
-          // No `id` here, deliberately. The pipeline builds `cand-<first 12 hex of the
-          // canonical hash>`, which is a TRUNCATION of the very key this upsert matches
-          // on — and it omits the topic that the key includes. Two consequences, both
-          // measured in review: one article under two topics misses on `where` and
-          // collides on the primary key, and 48 bits collide by birthday at around 24k
-          // candidates. The database mints the id; downstream references resolve because
-          // this method returns the persisted row's id.
-          topicId: this.topicId,
-          canonicalUrlHash: c.canonicalUrlHash,
-          firstSeenAt: new Date(c.firstSeenAt),
-        },
-        // firstSeenAt is not updated: it records when this news first appeared, and the
-        // second source carrying it does not make it newer.
-        update: data,
-      });
+      const row = await this.prisma.candidate.upsert(candidateUpsertArgs(this.topicId, c));
 
       // The join is rewritten rather than merged: rawItemIds is the current, complete answer
       // to "what produced this candidate", and a merge would accumulate rows from a previous
@@ -264,7 +371,7 @@ export class PrismaRepo implements Repo {
       await this.prisma.$transaction([
         this.prisma.candidateRawItem.deleteMany({ where: { candidateId: row.id } }),
         this.prisma.candidateRawItem.createMany({
-          data: c.rawItemIds.map((rawItemId) => ({ candidateId: row.id, rawItemId })),
+          data: candidateRawItemRows(row.id, c.rawItemIds),
           skipDuplicates: true,
         }),
       ]);
@@ -303,34 +410,7 @@ export class PrismaRepo implements Repo {
   async putCards(cards: Card[]): Promise<Card[]> {
     const out: Card[] = [];
     for (const card of cards) {
-      const data = {
-        candidateId: card.candidateId,
-        type: card.type,
-        techniqueKey: card.techniqueKey,
-        slug: card.slug,
-        title: card.title,
-        summary: card.summary,
-        body: card.body,
-        steps: card.steps,
-        tags: card.tags,
-        claims: card.claims as unknown as object,
-        attribution: card.attribution as unknown as object,
-        evidenceOk: card.evidenceOk,
-        promptVersion: card.promptVersion,
-      };
-      const row = await this.prisma.card.upsert({
-        // Keyed on (candidateId, techniqueKey) rather than on the id the pipeline built:
-        // one candidate yields one card per technique, and that is a fact about the domain
-        // rather than about how `extract` happens to name things today.
-        where: {
-          candidateId_techniqueKey: {
-            candidateId: card.candidateId,
-            techniqueKey: card.techniqueKey,
-          },
-        },
-        create: { ...data, id: card.id },
-        update: data,
-      });
+      const row = await this.prisma.card.upsert(cardUpsertArgs(card));
       out.push({ ...card, id: row.id });
     }
     return out;
@@ -359,18 +439,7 @@ export class PrismaRepo implements Repo {
   }
 
   async putIssue(issue: Issue): Promise<Issue> {
-    const data = {
-      number: issue.number,
-      title: issue.title,
-      intro: issue.intro,
-      publishedAt: at(issue.publishedAt),
-    };
-    // One issue per cycle, enforced by the unique key rather than by looking first.
-    const row = await this.prisma.issue.upsert({
-      where: { topicId_cycleId: { topicId: this.topicId, cycleId: issue.cycleId } },
-      create: { ...data, topicId: this.topicId, cycleId: issue.cycleId },
-      update: data,
-    });
+    const row = await this.prisma.issue.upsert(issueUpsertArgs(this.topicId, issue));
 
     // Same transaction, same reason. `skipDuplicates` because issue_cards carries a
     // unique key on (issueId, position) and a repeated card id in the input would
@@ -378,7 +447,7 @@ export class PrismaRepo implements Repo {
     await this.prisma.$transaction([
       this.prisma.issueCard.deleteMany({ where: { issueId: row.id } }),
       this.prisma.issueCard.createMany({
-        data: issue.cardIds.map((cardId, position) => ({ issueId: row.id, cardId, position })),
+        data: issueCardRows(row.id, issue.cardIds),
         skipDuplicates: true,
       }),
     ]);
